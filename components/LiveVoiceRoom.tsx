@@ -1,102 +1,80 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { VoiceRoom, ChatMessage, Participant } from "@/lib/data";
+import React, { useState, useRef, useEffect } from "react";
+import { useVoiceRoom, useMessenger, useDevices, useSpeakingDetection } from "@/hooks";
+import { useAuthStore, useUIStore } from "@/stores";
+import { VoiceRoom } from "@/types";
+import {
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  Share2,
+  Hand,
+  PhoneOff,
+  Send,
+  Headphones,
+  Sparkles,
+  MessageSquare,
+  Copy,
+} from "lucide-react";
 
 interface LiveVoiceRoomProps {
   room: VoiceRoom;
-  onLeaveRoom: () => void;
-  onOpenSettings: () => void;
 }
 
-export function LiveVoiceRoom({
-  room,
-  onLeaveRoom,
-  onOpenSettings,
-}: LiveVoiceRoomProps) {
-  // Voice Call State
-  const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [isDeafened, setIsDeafened] = useState<boolean>(false);
-  const [isSharingScreen, setIsSharingScreen] = useState<boolean>(false);
-  const [hasRaisedHand, setHasRaisedHand] = useState<boolean>(false);
-  const [activeAudioDevice, setActiveAudioDevice] = useState<string>("AirPods Pro (Alex)");
-  const [callSeconds, setCallSeconds] = useState<number>(room.activeSinceMinutes * 60 + 15);
+export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
+  const {
+    room: currentRoom,
+    isMuted,
+    isDeafened,
+    isScreenSharing,
+    handRaised,
+    networkLatency,
+    formattedDuration,
+    toggleMute,
+    toggleDeafen,
+    toggleScreenShare,
+    toggleHandRaised,
+    leaveRoom,
+  } = useVoiceRoom(room);
 
-  // Messenger State
-  const [messages, setMessages] = useState<ChatMessage[]>(room.messages || []);
-  const [inputText, setInputText] = useState<string>("");
+  const { messages, sendMessage, sendReaction } = useMessenger(
+    currentRoom?.id || room.id,
+    currentRoom?.messages || room.messages
+  );
+
+  const { audioInputId, microphones } = useDevices();
+  const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
+  const user = useAuthStore((s) => s.user);
+
+  // Messenger local input
+  const [inputText, setInputText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Participants in call
-  const [participants, setParticipants] = useState<Participant[]>(room.participants);
+  // Hook into speaking detection
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const { volume, isSpeaking } = useSpeakingDetection(localStream);
 
-  // Simulated timer
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCallSeconds((prev) => prev + 1);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  // Format call timer mm:ss or hh:mm:ss
-  const formatTimer = (totalSec: number) => {
-    const hrs = Math.floor(totalSec / 3600);
-    const mins = Math.floor((totalSec % 3600) / 60);
-    const secs = totalSec % 60;
-    if (hrs > 0) {
-      return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-    }
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  };
-
-  // Scroll to bottom of chat
-  const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
   }, [messages]);
 
-  // Send message
-  const handleSendMessage = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  const activeMicLabel =
+    microphones.find((m) => m.deviceId === audioInputId)?.label || "AirPods Pro (Alex)";
+
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
     if (!inputText.trim()) return;
-
-    const newMsg: ChatMessage = {
-      id: `msg-${Date.now()}`,
-      sender: "Alex Miller",
-      senderId: "p-1",
-      text: inputText.trim(),
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      isHost: true,
-    };
-
-    setMessages((prev) => [...prev, newMsg]);
+    sendMessage(inputText);
     setInputText("");
   };
 
-  // Send quick reaction
-  const handleSendReaction = (emoji: string) => {
-    const newMsg: ChatMessage = {
-      id: `reaction-${Date.now()}`,
-      sender: "Alex Miller",
-      text: `${emoji} reacted`,
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    };
-    setMessages((prev) => [...prev, newMsg]);
-  };
-
-  // Toggle Mute
-  const handleToggleMute = () => {
-    setIsMuted((prev) => !prev);
-    setParticipants((prev) =>
-      prev.map((p) => (p.isHost ? { ...p, isMuted: !p.isMuted, isSpeaking: p.isMuted ? false : p.isSpeaking } : p))
-    );
-  };
+  const participantsList = currentRoom?.participants || room.participants;
+  const maxSlots = currentRoom?.maxSlots || room.maxSlots;
 
   return (
-    <div className="w-full px-4 sm:px-6 py-4 max-w-[1680px] mx-auto flex flex-col gap-4">
+    <div className="w-full px-4 sm:px-6 py-4 max-w-[1680px] mx-auto flex flex-col gap-4 animate-fade-in">
       {/* 1. TOP ROOM CONTROL BAR */}
       <header className="w-full bg-[#161c23]/95 backdrop-blur-md rounded-2xl p-4 sm:p-5 border border-[#2a3340]/80 shadow-2xl flex flex-wrap lg:flex-nowrap items-center justify-between gap-4">
         {/* Room Context & Identity */}
@@ -108,11 +86,12 @@ export function LiveVoiceRoom({
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="font-bold text-base sm:text-lg text-[#dde3ed] truncate max-w-xl">
-                {room.title}
+                {currentRoom?.title || room.title}
               </h1>
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#242a32] text-[#22c55e] border border-[#2a3340] text-xs font-semibold">
-                <span>{room.flag}</span>
-                <span>{room.language}</span> • <span>{room.levelLabel}</span>
+                <span>{currentRoom?.flag || room.flag}</span>
+                <span>{currentRoom?.language || room.language}</span> •{" "}
+                <span>{currentRoom?.levelLabel || room.levelLabel}</span>
               </span>
             </div>
 
@@ -120,16 +99,16 @@ export function LiveVoiceRoom({
               <span className="inline-flex items-center gap-1.5 font-semibold text-[#dde3ed]">
                 <span className="w-2 h-2 rounded-full bg-[#22c55e] animate-ping"></span>
                 <span className="w-2 h-2 rounded-full bg-[#22c55e] -ml-3.5"></span>
-                <span>Live: {formatTimer(callSeconds)}</span>
+                <span>Live: {formattedDuration}</span>
               </span>
               <span>•</span>
               <span className="flex items-center gap-1 text-[#22c55e]">
                 <span className="material-symbols-outlined text-sm">wifi</span>
-                <span>24ms mesh</span>
+                <span>{networkLatency}ms mesh</span>
               </span>
               <span>•</span>
               <span className="text-[#94a3b8]">
-                {participants.length} / {room.maxParticipants} slots filled
+                {participantsList.length} / {maxSlots} slots filled
               </span>
             </div>
           </div>
@@ -139,7 +118,7 @@ export function LiveVoiceRoom({
         <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap shrink-0">
           {/* Mic Toggle with Live Peak Glow */}
           <button
-            onClick={handleToggleMute}
+            onClick={toggleMute}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-md active:scale-95 cursor-pointer ${
               !isMuted
                 ? "bg-[#22c55e] text-[#003915] hover:bg-[#4be277] shadow-[0_0_15px_rgba(34,197,94,0.4)]"
@@ -152,12 +131,12 @@ export function LiveVoiceRoom({
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#003915] opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#003915]"></span>
                 </span>
-                <span className="material-symbols-outlined text-lg leading-none">mic</span>
+                <Mic className="w-4 h-4" />
                 <span className="hidden md:inline">Speaking</span>
               </>
             ) : (
               <>
-                <span className="material-symbols-outlined text-lg leading-none">mic_off</span>
+                <MicOff className="w-4 h-4" />
                 <span className="hidden md:inline">Muted</span>
               </>
             )}
@@ -165,7 +144,7 @@ export function LiveVoiceRoom({
 
           {/* Deafen Toggle */}
           <button
-            onClick={() => setIsDeafened((prev) => !prev)}
+            onClick={toggleDeafen}
             className={`p-2 rounded-xl border transition-all cursor-pointer ${
               isDeafened
                 ? "bg-[#ef4444]/20 border-[#ef4444] text-[#ef4444]"
@@ -173,62 +152,52 @@ export function LiveVoiceRoom({
             }`}
             title={isDeafened ? "Sound Muted (Deafened)" : "Sound Active"}
           >
-            <span className="material-symbols-outlined text-xl leading-none">
-              {isDeafened ? "volume_off" : "volume_up"}
-            </span>
+            {isDeafened ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
           </button>
 
           {/* Screen Share Toggle */}
           <button
-            onClick={() => setIsSharingScreen((prev) => !prev)}
+            onClick={toggleScreenShare}
             className={`p-2 rounded-xl border transition-all cursor-pointer ${
-              isSharingScreen
+              isScreenSharing
                 ? "bg-[#22c55e]/20 border-[#22c55e] text-[#22c55e]"
                 : "bg-[#1a2027] border-[#2a3340] text-[#dde3ed] hover:bg-[#242a32]"
             }`}
             title="Share screen / learning material"
           >
-            <span className="material-symbols-outlined text-xl leading-none">present_to_all</span>
+            <Share2 className="w-5 h-5" />
           </button>
 
           {/* Raise Hand Toggle */}
           <button
-            onClick={() => {
-              setHasRaisedHand((prev) => !prev);
-              if (!hasRaisedHand) {
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    id: `hand-${Date.now()}`,
-                    sender: "Alex Miller",
-                    text: "✋ Raised hand to speak next",
-                    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-                  },
-                ]);
-              }
-            }}
+            onClick={toggleHandRaised}
             className={`p-2 rounded-xl border transition-all cursor-pointer ${
-              hasRaisedHand
+              handRaised
                 ? "bg-[#eab308]/20 border-[#eab308] text-[#eab308]"
                 : "bg-[#1a2027] border-[#2a3340] text-[#dde3ed] hover:bg-[#242a32]"
             }`}
             title="Raise Hand"
           >
-            <span className="material-symbols-outlined text-xl leading-none">front_hand</span>
+            <Hand className="w-5 h-5" />
           </button>
 
           {/* Audio Output Dropdown */}
-          <div className="hidden xl:flex items-center gap-1.5 bg-[#1a2027] border border-[#2a3340] px-3 py-1.5 rounded-xl text-xs text-[#94a3b8]">
-            <span className="material-symbols-outlined text-sm text-[#22c55e]">headphones</span>
-            <span className="text-[#dde3ed] font-medium">{activeAudioDevice}</span>
-          </div>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="hidden xl:flex items-center gap-1.5 bg-[#1a2027] border border-[#2a3340] px-3 py-1.5 rounded-xl text-xs text-[#94a3b8] hover:text-[#dde3ed] transition-colors cursor-pointer"
+          >
+            <Headphones className="w-3.5 h-3.5 text-[#22c55e]" />
+            <span className="text-[#dde3ed] font-medium max-w-[140px] truncate">
+              {activeMicLabel}
+            </span>
+          </button>
 
           {/* Leave Room Action */}
           <button
-            onClick={onLeaveRoom}
+            onClick={leaveRoom}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ef4444] text-white hover:bg-red-600 transition-all font-bold text-xs sm:text-sm shadow-md active:scale-95 cursor-pointer ml-1"
           >
-            <span className="material-symbols-outlined text-base leading-none">call_end</span>
+            <PhoneOff className="w-4 h-4" />
             <span>Leave</span>
           </button>
         </div>
@@ -238,7 +207,6 @@ export function LiveVoiceRoom({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* ================= PARTICIPANT STAGE (col-span-8) ================= */}
         <section className="lg:col-span-8 flex flex-col gap-4 min-w-0">
-          {/* Active Voice Stage Banner */}
           <div className="flex items-center justify-between bg-[#161c23] border border-[#2a3340] rounded-xl px-4 py-2.5">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-[#22c55e] animate-ping"></span>
@@ -251,21 +219,23 @@ export function LiveVoiceRoom({
             </span>
           </div>
 
-          {/* Participants Matrix (2x2 or 3x2 Grid) */}
+          {/* Participants Matrix */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
-            {participants.map((p) => {
-              const isCurrentUser = p.isHost;
+            {participantsList.map((p) => {
+              const isCurrentUser = p.id === user?.id || p.isHost;
+              const speakerActive = (p.isSpeaking || (isCurrentUser && !isMuted)) && !p.isMuted;
+
               return (
                 <div
                   key={p.id}
                   className={`relative rounded-2xl p-5 shadow-xl flex flex-col justify-between min-h-[230px] transition-all border ${
-                    p.isSpeaking && !p.isMuted
+                    speakerActive
                       ? "bg-[#1a2027] border-[#22c55e] shadow-[0_0_20px_rgba(34,197,94,0.15)]"
                       : "bg-[#161c23] border-[#2a3340]/80"
                   }`}
                 >
-                  {/* Subtle Speaking Radial Glow */}
-                  {p.isSpeaking && !p.isMuted && (
+                  {/* Speaking Radial Glow */}
+                  {speakerActive && (
                     <div className="absolute inset-0 bg-gradient-to-br from-[#22c55e]/10 via-transparent to-transparent pointer-events-none rounded-2xl"></div>
                   )}
 
@@ -274,7 +244,7 @@ export function LiveVoiceRoom({
                     <div className="flex items-center gap-1.5">
                       {p.isHost && (
                         <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#242a32] text-[#22c55e] font-bold text-[11px] border border-[#2a3340]">
-                          <span className="material-symbols-outlined text-xs">hotel_class</span>
+                          <Sparkles className="w-3 h-3 text-[#22c55e]" />
                           HOST
                         </span>
                       )}
@@ -286,23 +256,25 @@ export function LiveVoiceRoom({
                     </div>
 
                     <div className="flex items-center gap-1 bg-[#090f15]/80 px-2 py-1 rounded-lg border border-[#2a3340]">
-                      {p.isSpeaking && !p.isMuted ? (
+                      {speakerActive ? (
                         <>
-                          <span className="material-symbols-outlined text-xs text-[#22c55e]">graphic_eq</span>
+                          <span className="material-symbols-outlined text-xs text-[#22c55e]">
+                            graphic_eq
+                          </span>
                           <span className="text-[#22c55e] font-bold text-[10px] uppercase tracking-wide">
                             Transmitting
                           </span>
                         </>
                       ) : p.isMuted ? (
                         <>
-                          <span className="material-symbols-outlined text-xs text-[#ef4444]">mic_off</span>
+                          <MicOff className="w-3 h-3 text-[#ef4444]" />
                           <span className="text-[#ef4444] font-medium text-[10px] uppercase">
                             Muted
                           </span>
                         </>
                       ) : (
                         <>
-                          <span className="material-symbols-outlined text-xs text-[#94a3b8]">volume_up</span>
+                          <Volume2 className="w-3 h-3 text-[#94a3b8]" />
                           <span className="text-[#94a3b8] font-medium text-[10px] uppercase">
                             Listening
                           </span>
@@ -314,18 +286,21 @@ export function LiveVoiceRoom({
                   {/* Tile Center Avatar */}
                   <div className="relative z-10 flex flex-col items-center justify-center my-3">
                     <div className="relative flex items-center justify-center">
-                      {p.isSpeaking && !p.isMuted && (
+                      {speakerActive && (
                         <div className="absolute w-24 h-24 rounded-full bg-[#22c55e]/20 animate-ping"></div>
                       )}
                       <div
                         className={`relative w-20 h-20 rounded-full p-1 transition-all ${
-                          p.isSpeaking && !p.isMuted
+                          speakerActive
                             ? "bg-gradient-to-tr from-[#22c55e] to-[#4be277] shadow-[0_0_16px_rgba(34,197,94,0.4)]"
                             : "bg-[#242a32]"
                         }`}
                       >
                         <img
-                          src={p.avatar}
+                          src={
+                            p.avatarUrl ||
+                            "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
+                          }
                           alt={p.name}
                           className="w-full h-full object-cover rounded-full"
                         />
@@ -334,22 +309,17 @@ export function LiveVoiceRoom({
                       {/* Floating Mic status marker */}
                       <span
                         className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center shadow-lg border-2 border-[#161c23] ${
-                          p.isMuted
-                            ? "bg-[#ef4444] text-white"
-                            : "bg-[#22c55e] text-[#003915]"
+                          p.isMuted ? "bg-[#ef4444] text-white" : "bg-[#22c55e] text-[#003915]"
                         }`}
                       >
-                        <span className="material-symbols-outlined text-xs">
-                          {p.isMuted ? "mic_off" : "mic"}
-                        </span>
+                        {p.isMuted ? <MicOff className="w-3 h-3" /> : <Mic className="w-3 h-3" />}
                       </span>
                     </div>
 
-                    <span className="font-bold text-base text-[#dde3ed] mt-2.5">
-                      {p.name}
-                    </span>
+                    <span className="font-bold text-base text-[#dde3ed] mt-2.5">{p.name}</span>
                     <span className="text-xs text-[#94a3b8]">
-                      {p.location} • {p.learningLanguage} ({p.cefrLevel})
+                      {p.location || "Global"} • {p.learningLanguage} (
+                      {p.cefrPortfolio?.[room.language] || "Learner"})
                     </span>
                   </div>
 
@@ -359,7 +329,7 @@ export function LiveVoiceRoom({
                       Native: {p.nativeLanguage}
                     </span>
 
-                    {p.isSpeaking && !p.isMuted ? (
+                    {speakerActive ? (
                       <div className="flex items-end gap-1 h-3.5">
                         <span className="w-1 bg-[#22c55e] rounded-full animate-audio-bar-1 h-3"></span>
                         <span className="w-1 bg-[#22c55e] rounded-full animate-audio-bar-2 h-4"></span>
@@ -368,7 +338,7 @@ export function LiveVoiceRoom({
                       </div>
                     ) : (
                       <div className="flex items-center gap-1 text-[11px] text-[#94a3b8]">
-                        <span className="material-symbols-outlined text-xs">headphones</span>
+                        <Headphones className="w-3 h-3" />
                         <span>Connected</span>
                       </div>
                     )}
@@ -377,8 +347,8 @@ export function LiveVoiceRoom({
               );
             })}
 
-            {/* Empty Slots to reach capacity */}
-            {Array.from({ length: Math.max(0, room.maxParticipants - participants.length) }).map(
+            {/* Empty Slots */}
+            {Array.from({ length: Math.max(0, maxSlots - participantsList.length) }).map(
               (_, index) => (
                 <div
                   key={`stage-empty-${index}`}
@@ -395,12 +365,14 @@ export function LiveVoiceRoom({
                   </div>
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText(window.location.href);
-                      alert("Room invitation link copied to clipboard!");
+                      if (typeof window !== "undefined") {
+                        navigator.clipboard.writeText(window.location.href);
+                        alert("Room invitation link copied to clipboard!");
+                      }
                     }}
                     className="px-3.5 py-1.5 rounded-lg bg-[#242a32] hover:bg-[#2f353d] text-xs font-semibold text-[#22c55e] border border-[#2a3340] transition-colors flex items-center gap-1.5 cursor-pointer"
                   >
-                    <span className="material-symbols-outlined text-sm">share</span>
+                    <Copy className="w-3.5 h-3.5" />
                     <span>Copy Invite Link</span>
                   </button>
                 </div>
@@ -411,11 +383,11 @@ export function LiveVoiceRoom({
 
         {/* ================= BACKCHANNEL MESSENGER (col-span-4) ================= */}
         <aside className="lg:col-span-4 bg-[#161c23] border border-[#2a3340] rounded-2xl p-4 sm:p-5 flex flex-col justify-between h-[680px] shadow-2xl">
-          {/* Backchannel Header */}
+          {/* Header */}
           <div className="flex flex-col gap-2 pb-3 border-b border-[#2a3340]">
             <div className="flex items-center justify-between">
               <span className="font-bold text-sm text-[#dde3ed] flex items-center gap-2">
-                <span className="material-symbols-outlined text-[#22c55e] text-lg">chat</span>
+                <MessageSquare className="w-4 h-4 text-[#22c55e]" />
                 Room Backchannel & Notes
               </span>
               <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#242a32] text-[#22c55e]">
@@ -432,7 +404,7 @@ export function LiveVoiceRoom({
             {["🎯", "👏", "❤️", "😂", "🔥", "💡"].map((emoji) => (
               <button
                 key={emoji}
-                onClick={() => handleSendReaction(emoji)}
+                onClick={() => sendReaction(emoji)}
                 className="w-8 h-8 rounded-lg bg-[#1a2027] hover:bg-[#242a32] hover:scale-110 active:scale-95 transition-all text-base flex items-center justify-center border border-[#2a3340] cursor-pointer"
                 title={`Send ${emoji}`}
               >
@@ -443,42 +415,42 @@ export function LiveVoiceRoom({
 
           {/* Messages Stream */}
           <div className="flex-1 overflow-y-auto py-3 space-y-3 pr-1">
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`p-3 rounded-xl flex flex-col gap-1 text-xs border ${
-                  msg.isHighlighted
-                    ? "bg-[#22c55e]/10 border-[#22c55e]/40 text-[#dde3ed]"
-                    : msg.isHost
-                    ? "bg-[#1a2027] border-[#2a3340] text-[#dde3ed]"
-                    : "bg-[#1a2027]/70 border-[#2a3340]/60 text-[#dde3ed]"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      className={`font-bold ${
-                        msg.isHost ? "text-[#22c55e]" : "text-[#c0c7d4]"
-                      }`}
-                    >
-                      {msg.sender}
-                    </span>
-                    {msg.isHost && (
-                      <span className="text-[9px] uppercase px-1 py-0.2 rounded bg-[#242a32] text-[#22c55e] border border-[#2a3340]">
-                        Host
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[10px] text-[#94a3b8] font-mono">{msg.time}</span>
-                </div>
+            {messages.map((msg) => {
+              const isSenderHost = msg.sender.name === "Alex Miller";
 
-                <p className="text-xs leading-relaxed break-words font-sans">{msg.text}</p>
-              </div>
-            ))}
+              return (
+                <div
+                  key={msg.id}
+                  className={`p-3 rounded-xl flex flex-col gap-1 text-xs border ${
+                    msg.isHighlighted
+                      ? "bg-[#22c55e]/10 border-[#22c55e]/40 text-[#dde3ed]"
+                      : isSenderHost
+                      ? "bg-[#1a2027] border-[#2a3340] text-[#dde3ed]"
+                      : "bg-[#1a2027]/70 border-[#2a3340]/60 text-[#dde3ed]"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`font-bold ${isSenderHost ? "text-[#22c55e]" : "text-[#c0c7d4]"}`}>
+                        {msg.sender.name}
+                      </span>
+                      {isSenderHost && (
+                        <span className="text-[9px] uppercase px-1 py-0.2 rounded bg-[#242a32] text-[#22c55e] border border-[#2a3340]">
+                          Host
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-[#94a3b8] font-mono">{msg.createdAt}</span>
+                  </div>
+
+                  <p className="text-xs leading-relaxed break-words font-sans">{msg.content}</p>
+                </div>
+              );
+            })}
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Chat Input Field */}
+          {/* Chat Input */}
           <form onSubmit={handleSendMessage} className="pt-3 border-t border-[#2a3340] relative">
             <div className="relative flex items-center">
               <input
@@ -493,7 +465,7 @@ export function LiveVoiceRoom({
                 disabled={!inputText.trim()}
                 className="absolute right-2 p-1.5 rounded-lg bg-[#22c55e] text-[#003915] hover:bg-[#4be277] disabled:opacity-40 disabled:hover:bg-[#22c55e] transition-colors cursor-pointer"
               >
-                <span className="material-symbols-outlined text-base leading-none">send</span>
+                <Send className="w-4 h-4" />
               </button>
             </div>
           </form>

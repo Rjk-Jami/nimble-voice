@@ -1,90 +1,76 @@
 "use client";
 
-import React, { useState } from "react";
-import { VoiceRoom, LANGUAGES } from "@/lib/data";
+import React, { useEffect } from "react";
+import { useForm } from "react-hook-form";
+import { Language, CEFRLevel, LANGUAGE_FLAGS } from "@/enums";
+import { createRoomSchema, CreateRoomInput } from "@/schemas";
+import { useUIStore, useAuthStore } from "@/stores";
+import { useRooms } from "@/hooks";
+import { PlusCircle, X, Radio, Sparkles } from "lucide-react";
 
-interface CreateRoomModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onCreateRoom: (newRoom: VoiceRoom) => void;
-  initialTopic?: string;
-  initialLanguage?: string;
-}
+export function CreateRoomModal() {
+  const isCreateOpen = useUIStore((s) => s.isCreateOpen);
+  const initialTopic = useUIStore((s) => s.createInitialTopic);
+  const closeCreateModal = useUIStore((s) => s.closeCreateModal);
 
-export function CreateRoomModal({
-  isOpen,
-  onClose,
-  onCreateRoom,
-  initialTopic = "",
-  initialLanguage = "English",
-}: CreateRoomModalProps) {
-  const [title, setTitle] = useState<string>(initialTopic || "");
-  const [language, setLanguage] = useState<string>(initialLanguage);
-  const [cefrLevel, setCefrLevel] = useState<'ANY' | 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2' | 'NATIVE'>("ANY");
-  const [maxParticipants, setMaxParticipants] = useState<number>(5);
-  const [topicTag, setTopicTag] = useState<string>("Casual & Life");
-  const [isBeginnerFriendly, setIsBeginnerFriendly] = useState<boolean>(true);
+  const { createRoom } = useRooms();
+  const user = useAuthStore((s) => s.user);
 
-  if (!isOpen) return null;
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    reset,
+    formState: { errors },
+  } = useForm<CreateRoomInput>({
+    defaultValues: {
+      title: "",
+      language: Language.ENGLISH,
+      cefrLevel: CEFRLevel.ANY,
+      maxSlots: 5,
+      topicTag: "Casual & Life",
+      isBeginnerFriendly: true,
+    },
+  });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) return;
+  useEffect(() => {
+    if (initialTopic) {
+      setValue("title", initialTopic);
+    }
+  }, [initialTopic, setValue]);
 
-    const matchedLang = LANGUAGES.find((l) => l.name.toLowerCase() === language.toLowerCase()) || {
-      name: language,
-      flag: "🌐",
+  if (!isCreateOpen) return null;
+
+  const onSubmit = async (data: CreateRoomInput) => {
+    const validation = createRoomSchema.safeParse(data);
+    if (!validation.success) {
+      alert(validation.error.issues.map((i) => i.message).join("\n"));
+      return;
+    }
+
+    const hostUser = user || {
+      id: "p-host-1",
+      name: "Alex Miller",
+      avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+      location: "San Francisco, CA",
+      nativeLanguage: "English",
+      learningLanguage: "Spanish",
+      isVerified: true,
+      cefrPortfolio: { English: CEFRLevel.NATIVE },
+      karma: 142,
+      hoursSpoken: 38.5,
+      streak: 18,
     };
 
-    let levelLabel = "All Levels Welcome";
-    if (cefrLevel === "A1" || cefrLevel === "A2") levelLabel = "Beginner Friendly";
-    else if (cefrLevel === "B1" || cefrLevel === "B2") levelLabel = "Intermediate";
-    else if (cefrLevel === "C1" || cefrLevel === "C2") levelLabel = "Advanced";
-    else if (cefrLevel === "NATIVE") levelLabel = "Native Speakers";
-
-    const newRoom: VoiceRoom = {
-      id: `room-${Date.now()}`,
-      title: title.trim(),
-      language: matchedLang.name,
-      flag: matchedLang.flag,
-      cefrLevel,
-      levelLabel,
-      topicTag,
-      activeSinceMinutes: 1,
-      maxParticipants,
-      hasFreeSeats: true,
-      isBeginnerFriendly,
-      hasNativeSpeaker: false,
-      isLive: true,
-      participants: [
-        {
-          id: `p-host-${Date.now()}`,
-          name: "Alex Miller",
-          avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-          location: "San Francisco, CA",
-          nativeLanguage: "English",
-          learningLanguage: matchedLang.name,
-          cefrLevel: "NATIVE",
-          isHost: true,
-          isSpeaking: false,
-          isMuted: false,
-          audioLevel: 0,
-        },
-      ],
-      messages: [
-        {
-          id: `msg-${Date.now()}`,
-          sender: "System",
-          text: `Room created! Welcome to ${title.trim()}.`,
-          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          isSystem: true,
-        },
-      ],
-    };
-
-    onCreateRoom(newRoom);
-    onClose();
+    await createRoom(validation.data, hostUser);
+    closeCreateModal();
+    reset();
   };
+
+  const currentMaxSlots = watch("maxSlots");
+  const languageOptions = Object.values(Language).filter((l) => l !== Language.ALL);
+  const cefrOptions = Object.values(CEFRLevel);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in">
@@ -93,23 +79,23 @@ export function CreateRoomModal({
         <div className="flex items-center justify-between pb-3 border-b border-[#2a3340]">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-[#22c55e]/20 text-[#22c55e] flex items-center justify-center border border-[#22c55e]/40">
-              <span className="material-symbols-outlined text-xl">add_circle</span>
+              <PlusCircle className="w-5 h-5" />
             </div>
             <div>
               <h3 className="font-bold text-base text-[#dde3ed]">Create a New Voice Room</h3>
-              <p className="text-xs text-[#94a3b8]">Start speaking with international peers instantly</p>
+              <p className="text-xs text-[#94a3b8]">React Hook Form + Zod v4 validated</p>
             </div>
           </div>
           <button
-            onClick={onClose}
-            className="p-1 rounded-lg text-[#94a3b8] hover:text-[#dde3ed] hover:bg-[#242a32] transition-colors"
+            onClick={closeCreateModal}
+            className="p-1 rounded-lg text-[#94a3b8] hover:text-[#dde3ed] hover:bg-[#242a32] transition-colors cursor-pointer"
           >
-            <span className="material-symbols-outlined text-xl">close</span>
+            <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
           {/* Room Title */}
           <div>
             <label className="block text-xs font-semibold text-[#dde3ed] mb-1.5">
@@ -117,12 +103,15 @@ export function CreateRoomModal({
             </label>
             <input
               type="text"
-              required
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              {...register("title", { required: true, minLength: 3, maxLength: 80 })}
               placeholder="e.g. Daily routine, travel stories, favorite books..."
               className="w-full bg-[#1a2027] text-[#dde3ed] placeholder:text-[#94a3b8] text-sm px-3.5 py-2.5 rounded-xl border border-[#2a3340] focus:outline-none focus:border-[#22c55e] focus:ring-1 focus:ring-[#22c55e] transition-all"
             />
+            {errors.title && (
+              <span className="text-[11px] text-[#ef4444] mt-1 block">
+                {errors.title.message || "Please provide a valid title (3-80 characters)"}
+              </span>
+            )}
           </div>
 
           {/* Language and CEFR Level in 2 cols */}
@@ -130,30 +119,34 @@ export function CreateRoomModal({
             <div>
               <label className="block text-xs font-semibold text-[#dde3ed] mb-1.5">Language</label>
               <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
+                {...register("language")}
                 className="w-full bg-[#1a2027] text-[#dde3ed] text-sm px-3 py-2.5 rounded-xl border border-[#2a3340] focus:outline-none focus:border-[#22c55e]"
               >
-                {LANGUAGES.filter((l) => l.code !== "all").map((l) => (
-                  <option key={l.code} value={l.name}>
-                    {l.flag} {l.name}
+                {languageOptions.map((lang) => (
+                  <option key={lang} value={lang}>
+                    {LANGUAGE_FLAGS[lang] || "🌐"} {lang}
                   </option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#dde3ed] mb-1.5">Level Requirement</label>
+              <label className="block text-xs font-semibold text-[#dde3ed] mb-1.5">
+                Level Requirement
+              </label>
               <select
-                value={cefrLevel}
-                onChange={(e) => setCefrLevel(e.target.value as any)}
+                {...register("cefrLevel")}
                 className="w-full bg-[#1a2027] text-[#dde3ed] text-sm px-3 py-2.5 rounded-xl border border-[#2a3340] focus:outline-none focus:border-[#22c55e]"
               >
-                <option value="ANY">Any Level Welcome</option>
-                <option value="A1">Beginner (A1-A2)</option>
-                <option value="B1">Intermediate (B1-B2)</option>
-                <option value="C1">Advanced (C1-C2)</option>
-                <option value="NATIVE">Native Speakers Only</option>
+                {cefrOptions.map((level) => (
+                  <option key={level} value={level}>
+                    {level === CEFRLevel.ALL
+                      ? "All Levels Welcome"
+                      : level === CEFRLevel.NATIVE
+                      ? "Native Speakers Only"
+                      : `${level} Level`}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -162,14 +155,13 @@ export function CreateRoomModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-[#dde3ed] mb-1.5">
-                Max Speakers: <span className="text-[#22c55e] font-bold">{maxParticipants}</span>
+                Max Speakers: <span className="text-[#22c55e] font-bold">{currentMaxSlots}</span>
               </label>
               <input
                 type="range"
                 min="2"
                 max="8"
-                value={maxParticipants}
-                onChange={(e) => setMaxParticipants(parseInt(e.target.value))}
+                {...register("maxSlots", { valueAsNumber: true })}
                 className="w-full accent-[#22c55e] cursor-pointer mt-1"
               />
               <div className="flex justify-between text-[10px] text-[#94a3b8] mt-1">
@@ -182,8 +174,7 @@ export function CreateRoomModal({
             <div>
               <label className="block text-xs font-semibold text-[#dde3ed] mb-1.5">Category Tag</label>
               <select
-                value={topicTag}
-                onChange={(e) => setTopicTag(e.target.value)}
+                {...register("topicTag")}
                 className="w-full bg-[#1a2027] text-[#dde3ed] text-sm px-3 py-2.5 rounded-xl border border-[#2a3340] focus:outline-none focus:border-[#22c55e]"
               >
                 <option value="Casual & Life">#Casual & Life</option>
@@ -200,13 +191,17 @@ export function CreateRoomModal({
           <label className="flex items-center gap-2.5 p-3 rounded-xl bg-[#1a2027] border border-[#2a3340] cursor-pointer">
             <input
               type="checkbox"
-              checked={isBeginnerFriendly}
-              onChange={(e) => setIsBeginnerFriendly(e.target.checked)}
+              {...register("isBeginnerFriendly")}
               className="accent-[#22c55e] w-4 h-4 rounded"
             />
             <div className="flex flex-col">
-              <span className="text-xs font-semibold text-[#dde3ed]">Patient & Beginner-Friendly Room</span>
-              <span className="text-[11px] text-[#94a3b8]">Welcoming atmosphere with slower pacing for learners</span>
+              <span className="text-xs font-semibold text-[#dde3ed] flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5 text-[#22c55e]" />
+                Patient & Beginner-Friendly Room
+              </span>
+              <span className="text-[11px] text-[#94a3b8]">
+                Welcoming atmosphere with slower pacing for learners
+              </span>
             </div>
           </label>
 
@@ -214,8 +209,8 @@ export function CreateRoomModal({
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#2a3340]">
             <button
               type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold text-[#94a3b8] hover:text-[#dde3ed] hover:bg-[#242a32] transition-colors"
+              onClick={closeCreateModal}
+              className="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold text-[#94a3b8] hover:text-[#dde3ed] hover:bg-[#242a32] transition-colors cursor-pointer"
             >
               Cancel
             </button>
@@ -223,7 +218,7 @@ export function CreateRoomModal({
               type="submit"
               className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-[#22c55e] text-[#003915] font-bold text-xs sm:text-sm hover:bg-[#4be277] transition-all shadow-[0_0_15px_rgba(34,197,94,0.3)] active:scale-95 cursor-pointer"
             >
-              <span className="material-symbols-outlined text-base">podcasts</span>
+              <Radio className="w-4 h-4" />
               <span>Launch Room & Join</span>
             </button>
           </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { Navbar } from "@/components/Navbar";
 import { LobbyView } from "@/components/LobbyView";
 import { LiveVoiceRoom } from "@/components/LiveVoiceRoom";
@@ -11,112 +11,48 @@ import { AboutView } from "@/components/AboutView";
 import { ProfileModal } from "@/components/ProfileModal";
 import { AudioCalibrationModal } from "@/components/AudioCalibrationModal";
 import { SettingsModal } from "@/components/SettingsModal";
-import { INITIAL_ROOMS, VoiceRoom } from "@/lib/data";
+import { useRoomStore, useUIStore } from "@/stores";
+import { PhoneOff } from "lucide-react";
 
 export default function Home() {
-  const [rooms, setRooms] = useState<VoiceRoom[]>(INITIAL_ROOMS);
-  const [activeRoom, setActiveRoom] = useState<VoiceRoom | null>(null);
-  const [activeTab, setActiveTab] = useState<string>("rooms");
+  const currentRoom = useRoomStore((s) => s.currentRoom);
+  const leaveRoom = useRoomStore((s) => s.leaveRoom);
 
-  // Modals state
-  const [isCreateOpen, setIsCreateOpen] = useState<boolean>(false);
-  const [createInitialTopic, setCreateInitialTopic] = useState<string>("");
-  const [isProfileOpen, setIsProfileOpen] = useState<boolean>(false);
-  const [isCalibrationOpen, setIsCalibrationOpen] = useState<boolean>(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
-
-  // Join Room handler
-  const handleJoinRoom = (room: VoiceRoom) => {
-    setActiveRoom(room);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  // Leave Room handler
-  const handleLeaveRoom = () => {
-    setActiveRoom(null);
-  };
-
-  // Create Room handler
-  const handleCreateRoom = (newRoom: VoiceRoom) => {
-    setRooms((prev) => [newRoom, ...prev]);
-    setActiveRoom(newRoom);
-    setActiveTab("rooms");
-  };
-
-  // Start room from Topic Starter
-  const handleSelectTopicFromPrompts = (topicTitle: string) => {
-    setCreateInitialTopic(topicTitle);
-    setIsCreateOpen(true);
-  };
+  const { activeTab, setActiveTab, setCalibrationOpen } = useUIStore();
 
   return (
     <div className="min-h-screen bg-[#0e141b] text-[#dde3ed] flex flex-col font-sans">
       {/* Fixed Header Navbar */}
-      <Navbar
-        activeTab={activeTab}
-        setActiveTab={(tab) => {
-          setActiveTab(tab);
-          if (activeRoom && tab !== "rooms") {
-            // keep room running in background or let user browse
-          }
-        }}
-        onOpenCreateModal={() => {
-          setCreateInitialTopic("");
-          setIsCreateOpen(true);
-        }}
-        onOpenAudioSettings={() => setIsCalibrationOpen(true)}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenProfile={() => setIsProfileOpen(true)}
-        inCall={activeRoom !== null}
-      />
+      <Navbar />
 
       {/* Main Content Area */}
       <main className="w-full pt-16 flex-1 flex flex-col">
-        {activeRoom ? (
+        {currentRoom ? (
           <div className="flex flex-col animate-fade-in">
-            {/* If in call, show persistent mini banner to return to lobby browsing if needed */}
+            {/* Active Session Ribbon */}
             <div className="w-full bg-[#161c23] border-b border-[#2a3340]/60 px-6 py-2 flex items-center justify-between text-xs text-[#94a3b8]">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-[#22c55e] animate-ping"></span>
                 <span className="font-semibold text-[#dde3ed]">Active In-Room Session</span>
                 <span>•</span>
-                <span>{activeRoom.title}</span>
+                <span>{currentRoom.title}</span>
               </div>
               <button
-                onClick={handleLeaveRoom}
-                className="text-[#ef4444] hover:underline font-semibold flex items-center gap-1"
+                onClick={leaveRoom}
+                className="text-[#ef4444] hover:underline font-semibold flex items-center gap-1 cursor-pointer"
               >
-                <span className="material-symbols-outlined text-sm">exit_to_app</span>
-                Leave call & return to directory
+                <PhoneOff className="w-3.5 h-3.5" />
+                <span>Leave call & return to directory</span>
               </button>
             </div>
 
-            <LiveVoiceRoom
-              room={activeRoom}
-              onLeaveRoom={handleLeaveRoom}
-              onOpenSettings={() => setIsSettingsOpen(true)}
-            />
+            <LiveVoiceRoom room={currentRoom} />
           </div>
         ) : (
           <>
-            {activeTab === "rooms" && (
-              <LobbyView
-                rooms={rooms}
-                onJoinRoom={handleJoinRoom}
-                onOpenCreateModal={() => {
-                  setCreateInitialTopic("");
-                  setIsCreateOpen(true);
-                }}
-                onPreviewCall={(room) => handleJoinRoom(room)}
-              />
-            )}
-
-            {activeTab === "topics" && (
-              <TopicsView onSelectTopic={handleSelectTopicFromPrompts} />
-            )}
-
+            {activeTab === "rooms" && <LobbyView />}
+            {activeTab === "topics" && <TopicsView />}
             {activeTab === "community" && <CommunityView />}
-
             {activeTab === "about" && <AboutView />}
           </>
         )}
@@ -133,20 +69,20 @@ export default function Home() {
 
           <div className="flex items-center gap-6">
             <button
-              onClick={() => setIsCalibrationOpen(true)}
-              className="hover:text-[#dde3ed] transition-colors"
+              onClick={() => setCalibrationOpen(true)}
+              className="hover:text-[#dde3ed] transition-colors cursor-pointer"
             >
               Audio Calibration
             </button>
             <button
               onClick={() => setActiveTab("community")}
-              className="hover:text-[#dde3ed] transition-colors"
+              className="hover:text-[#dde3ed] transition-colors cursor-pointer"
             >
               Safety Rules
             </button>
             <button
               onClick={() => setActiveTab("about")}
-              className="hover:text-[#dde3ed] transition-colors"
+              className="hover:text-[#dde3ed] transition-colors cursor-pointer"
             >
               Server Status
             </button>
@@ -154,30 +90,11 @@ export default function Home() {
         </div>
       </footer>
 
-      {/* Modals */}
-      <CreateRoomModal
-        isOpen={isCreateOpen}
-        onClose={() => setIsCreateOpen(false)}
-        onCreateRoom={handleCreateRoom}
-        initialTopic={createInitialTopic}
-      />
-
-      <ProfileModal
-        isOpen={isProfileOpen}
-        onClose={() => setIsProfileOpen(false)}
-        onOpenCalibration={() => setIsCalibrationOpen(true)}
-      />
-
-      <AudioCalibrationModal
-        isOpen={isCalibrationOpen}
-        onClose={() => setIsCalibrationOpen(false)}
-      />
-
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        onOpenCalibration={() => setIsCalibrationOpen(true)}
-      />
+      {/* Modals driven by separated Zustand Stores */}
+      <CreateRoomModal />
+      <ProfileModal />
+      <AudioCalibrationModal />
+      <SettingsModal />
     </div>
   );
 }

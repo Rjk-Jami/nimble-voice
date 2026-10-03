@@ -1,0 +1,33 @@
+export enum Language {
+  ALL = "All",
+  ENGLISH = "English",
+  SPANISH = "Spanish",
+  FRENCH = "French",
+  GERMAN = "German",
+  JAPANESE = "Japanese",
+  KOREAN = "Korean",
+  CHINESE = "Chinese",
+  ARABIC = "Arabic",
+  RUSSIAN = "Russian",
+  PORTUGUESE = "Portuguese",
+  ITALIAN = "Italian",
+  TURKISH = "Turkish",
+  HINDI = "Hindi",
+}
+
+export const LANGUAGE_FLAGS: Record<Language, string> = {
+  [Language.ALL]: "🌐",
+  [Language.ENGLISH]: "🇬🇧",
+  [Language.SPANISH]: "🇪🇸",
+  [Language.FRENCH]: "🇫🇷",
+  [Language.GERMAN]: "🇩🇪",
+  [Language.JAPANESE]: "🇯🇵",
+  [Language.KOREAN]: "🇰🇷",
+  [Language.CHINESE]: "🇨🇳",
+  [Language.ARABIC]: "🇸🇦",
+  [Language.RUSSIAN]: "🇷🇺",
+  [Language.PORTUGUESE]: "🇧🇷",
+  [Language.ITALIAN]: "🇮🇹",
+  [Language.TURKISH]: "🇹🇷",
+  [Language.HINDI]: "🇮🇳",
+};

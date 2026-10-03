@@ -2,13 +2,12 @@
 
 import React, { useState } from "react";
 import { TOPIC_PROMPTS } from "@/lib/data";
+import { useUIStore } from "@/stores";
+import { Lightbulb, Shuffle, ArrowRight } from "lucide-react";
 
-interface TopicsViewProps {
-  onSelectTopic: (topicTitle: string) => void;
-}
-
-export function TopicsView({ onSelectTopic }: TopicsViewProps) {
+export function TopicsView() {
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const openCreateModal = useUIStore((s) => s.openCreateModal);
 
   const categories = ["All", ...TOPIC_PROMPTS.map((c) => c.category)];
 
@@ -17,13 +16,19 @@ export function TopicsView({ onSelectTopic }: TopicsViewProps) {
       ? TOPIC_PROMPTS
       : TOPIC_PROMPTS.filter((c) => c.category === selectedCategory);
 
+  const handlePickRandom = () => {
+    const allPrompts = TOPIC_PROMPTS.flatMap((c) => c.prompts);
+    const random = allPrompts[Math.floor(Math.random() * allPrompts.length)];
+    openCreateModal(random.title);
+  };
+
   return (
     <div className="w-full px-4 sm:px-6 py-8 max-w-[1400px] mx-auto flex flex-col gap-6 animate-fade-in">
       {/* Hero Header */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-[#161c23] border border-[#2a3340] rounded-2xl p-6 shadow-xl">
         <div className="flex flex-col gap-1 max-w-2xl">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[#22c55e] text-2xl">lightbulb</span>
+            <Lightbulb className="w-6 h-6 text-[#22c55e]" />
             <h1 className="text-xl sm:text-2xl font-bold text-[#dde3ed]">
               Conversation Prompts & Icebreakers
             </h1>
@@ -34,14 +39,10 @@ export function TopicsView({ onSelectTopic }: TopicsViewProps) {
         </div>
 
         <button
-          onClick={() => {
-            const allPrompts = TOPIC_PROMPTS.flatMap((c) => c.prompts);
-            const random = allPrompts[Math.floor(Math.random() * allPrompts.length)];
-            onSelectTopic(random.title);
-          }}
+          onClick={handlePickRandom}
           className="flex items-center gap-2 bg-[#22c55e] text-[#003915] font-bold text-xs sm:text-sm px-4 py-2.5 rounded-xl hover:bg-[#4be277] transition-all shadow-[0_0_15px_rgba(34,197,94,0.3)] active:scale-95 cursor-pointer shrink-0"
         >
-          <span className="material-symbols-outlined text-base">shuffle</span>
+          <Shuffle className="w-4 h-4" />
           <span>Pick Random Topic</span>
         </button>
       </div>
@@ -52,7 +53,7 @@ export function TopicsView({ onSelectTopic }: TopicsViewProps) {
           <button
             key={cat}
             onClick={() => setSelectedCategory(cat)}
-            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap transition-all border ${
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap transition-all border cursor-pointer ${
               selectedCategory === cat
                 ? "bg-[#22c55e] text-[#003915] border-[#22c55e] shadow-md font-bold"
                 : "bg-[#161c23] text-[#94a3b8] hover:text-[#dde3ed] border-[#2a3340] hover:bg-[#1a2027]"
@@ -91,13 +92,11 @@ export function TopicsView({ onSelectTopic }: TopicsViewProps) {
                   </div>
 
                   <button
-                    onClick={() => onSelectTopic(prompt.title)}
-                    className="flex items-center justify-between w-full pt-3 border-t border-[#2a3340] text-xs font-semibold text-[#22c55e] group-hover:text-[#4be277] transition-colors"
+                    onClick={() => openCreateModal(prompt.title)}
+                    className="flex items-center justify-between w-full pt-3 border-t border-[#2a3340] text-xs font-semibold text-[#22c55e] group-hover:text-[#4be277] transition-colors cursor-pointer"
                   >
                     <span>Start room with this topic</span>
-                    <span className="material-symbols-outlined text-base group-hover:translate-x-1 transition-transform">
-                      arrow_forward
-                    </span>
+                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                   </button>
                 </div>
               ))}
