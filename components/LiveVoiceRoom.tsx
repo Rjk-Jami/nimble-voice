@@ -16,8 +16,13 @@ import {
   Headphones,
   Sparkles,
   MessageSquare,
-  Copy,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { FloatingReactionItem, FloatingReactions } from "./motion/FloatingReaction";
+import { MotionButton } from "./motion/MotionButton";
+import { TacticalEqualizer } from "./motion/TacticalEqualizer";
+import { SpeakingRipple } from "./motion/SpeakingRipple";
+
 
 interface LiveVoiceRoomProps {
   room: VoiceRoom;
@@ -52,9 +57,12 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
   const [inputText, setInputText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Floating live emoji reactions
+  const [floatingReactions, setFloatingReactions] = useState<FloatingReactionItem[]>([]);
+
   // Hook into speaking detection
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const { volume, isSpeaking } = useSpeakingDetection(localStream);
+  const [localStream] = useState<MediaStream | null>(null);
+  const { isSpeaking } = useSpeakingDetection(localStream);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -70,11 +78,24 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
     setInputText("");
   };
 
+  const handleTriggerReaction = (emoji: string) => {
+    sendReaction(emoji);
+    const newReaction: FloatingReactionItem = {
+      id: `${Date.now()}-${Math.random()}`,
+      emoji,
+      xOffset: (Math.random() - 0.5) * 160,
+    };
+    setFloatingReactions((prev) => [...prev.slice(-8), newReaction]);
+  };
+
   const participantsList = currentRoom?.participants || room.participants;
   const maxSlots = currentRoom?.maxSlots || room.maxSlots;
 
   return (
-    <div className="w-full px-4 sm:px-6 py-4 max-w-[1680px] mx-auto flex flex-col gap-4 animate-fade-in">
+    <div className="w-full px-4 sm:px-6 py-4 max-w-[1680px] mx-auto flex flex-col gap-4 animate-fade-in relative">
+      {/* Floating Reactions Overlay */}
+      <FloatingReactions reactions={floatingReactions} />
+
       {/* 1. TOP ROOM CONTROL BAR */}
       <header className="w-full bg-[#161c23]/95 backdrop-blur-md rounded-2xl p-4 sm:p-5 border border-[#2a3340]/80 shadow-2xl flex flex-wrap lg:flex-nowrap items-center justify-between gap-4">
         {/* Room Context & Identity */}
@@ -117,22 +138,20 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
         {/* Central Audio & Tactical Controls */}
         <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap shrink-0">
           {/* Mic Toggle with Live Peak Glow */}
-          <button
+          <motion.button
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.95 }}
             onClick={toggleMute}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-md active:scale-95 cursor-pointer ${
-              !isMuted
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs sm:text-sm transition-colors shadow-md cursor-pointer ${!isMuted
                 ? "bg-[#22c55e] text-[#003915] hover:bg-[#4be277] shadow-[0_0_15px_rgba(34,197,94,0.4)]"
                 : "bg-[#242a32] text-[#ef4444] border border-[#ef4444]/40 hover:bg-[#2f353d]"
-            }`}
+              }`}
           >
             {!isMuted ? (
               <>
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#003915] opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#003915]"></span>
-                </span>
+                <TacticalEqualizer isActive={true} barCount={3} size="sm" color="#003915" />
                 <Mic className="w-4 h-4" />
-                <span className="hidden md:inline">Speaking</span>
+                <span className="hidden md:inline">Transmitting</span>
               </>
             ) : (
               <>
@@ -140,46 +159,49 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
                 <span className="hidden md:inline">Muted</span>
               </>
             )}
-          </button>
+          </motion.button>
 
           {/* Deafen Toggle */}
-          <button
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             onClick={toggleDeafen}
-            className={`p-2 rounded-xl border transition-all cursor-pointer ${
-              isDeafened
+            className={`p-2 rounded-xl border transition-colors cursor-pointer ${isDeafened
                 ? "bg-[#ef4444]/20 border-[#ef4444] text-[#ef4444]"
                 : "bg-[#1a2027] border-[#2a3340] text-[#dde3ed] hover:bg-[#242a32]"
-            }`}
+              }`}
             title={isDeafened ? "Sound Muted (Deafened)" : "Sound Active"}
           >
             {isDeafened ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-          </button>
+          </motion.button>
 
           {/* Screen Share Toggle */}
-          <button
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             onClick={toggleScreenShare}
-            className={`p-2 rounded-xl border transition-all cursor-pointer ${
-              isScreenSharing
+            className={`p-2 rounded-xl border transition-colors cursor-pointer ${isScreenSharing
                 ? "bg-[#22c55e]/20 border-[#22c55e] text-[#22c55e]"
                 : "bg-[#1a2027] border-[#2a3340] text-[#dde3ed] hover:bg-[#242a32]"
-            }`}
+              }`}
             title="Share screen / learning material"
           >
             <Share2 className="w-5 h-5" />
-          </button>
+          </motion.button>
 
           {/* Raise Hand Toggle */}
-          <button
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             onClick={toggleHandRaised}
-            className={`p-2 rounded-xl border transition-all cursor-pointer ${
-              handRaised
+            className={`p-2 rounded-xl border transition-colors cursor-pointer ${handRaised
                 ? "bg-[#eab308]/20 border-[#eab308] text-[#eab308]"
                 : "bg-[#1a2027] border-[#2a3340] text-[#dde3ed] hover:bg-[#242a32]"
-            }`}
+              }`}
             title="Raise Hand"
           >
             <Hand className="w-5 h-5" />
-          </button>
+          </motion.button>
 
           {/* Audio Output Dropdown */}
           <button
@@ -193,13 +215,15 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
           </button>
 
           {/* Leave Room Action */}
-          <button
+          <MotionButton
+            variant="danger"
+            size="sm"
             onClick={leaveRoom}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#ef4444] text-white hover:bg-red-600 transition-all font-bold text-xs sm:text-sm shadow-md active:scale-95 cursor-pointer ml-1"
+            className="ml-1"
           >
             <PhoneOff className="w-4 h-4" />
             <span>Leave</span>
-          </button>
+          </MotionButton>
         </div>
       </header>
 
@@ -223,20 +247,26 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
             {participantsList.map((p) => {
               const isCurrentUser = p.id === user?.id || p.isHost;
-              const speakerActive = (p.isSpeaking || (isCurrentUser && !isMuted)) && !p.isMuted;
+              const speakerActive =
+                (p.isSpeaking || (isCurrentUser && !isMuted && isSpeaking)) && !p.isMuted;
 
               return (
-                <div
+                <motion.div
                   key={p.id}
-                  className={`relative rounded-2xl p-5 shadow-xl flex flex-col justify-between min-h-[230px] transition-all border ${
-                    speakerActive
-                      ? "bg-[#1a2027] border-[#22c55e] shadow-[0_0_20px_rgba(34,197,94,0.15)]"
+                  layout="position"
+                  className={`relative rounded-2xl p-5 shadow-xl flex flex-col justify-between min-h-[230px] transition-colors border ${speakerActive
+                      ? "bg-[#1a2027] border-[#22c55e] shadow-[0_0_24px_rgba(34,197,94,0.2)]"
                       : "bg-[#161c23] border-[#2a3340]/80"
-                  }`}
+                    }`}
                 >
                   {/* Speaking Radial Glow */}
                   {speakerActive && (
-                    <div className="absolute inset-0 bg-gradient-to-br from-[#22c55e]/10 via-transparent to-transparent pointer-events-none rounded-2xl"></div>
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="absolute inset-0 bg-gradient-to-br from-[#22c55e]/15 via-transparent to-transparent pointer-events-none rounded-2xl"
+                    />
                   )}
 
                   {/* Tile Top Header */}
@@ -258,9 +288,7 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
                     <div className="flex items-center gap-1 bg-[#090f15]/80 px-2 py-1 rounded-lg border border-[#2a3340]">
                       {speakerActive ? (
                         <>
-                          <span className="material-symbols-outlined text-xs text-[#22c55e]">
-                            graphic_eq
-                          </span>
+                          <TacticalEqualizer isActive={true} barCount={3} size="sm" />
                           <span className="text-[#22c55e] font-bold text-[10px] uppercase tracking-wide">
                             Transmitting
                           </span>
@@ -286,15 +314,16 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
                   {/* Tile Center Avatar */}
                   <div className="relative z-10 flex flex-col items-center justify-center my-3">
                     <div className="relative flex items-center justify-center">
+                      {/* Realistic concentric speaking ripple */}
                       {speakerActive && (
-                        <div className="absolute w-24 h-24 rounded-full bg-[#22c55e]/20 animate-ping"></div>
+                        <SpeakingRipple size={80} isActive={true} />
                       )}
+
                       <div
-                        className={`relative w-20 h-20 rounded-full p-1 transition-all ${
-                          speakerActive
-                            ? "bg-gradient-to-tr from-[#22c55e] to-[#4be277] shadow-[0_0_16px_rgba(34,197,94,0.4)]"
+                        className={`relative w-20 h-20 rounded-full p-1 transition-all ${speakerActive
+                            ? "bg-gradient-to-tr from-[#22c55e] to-[#4be277] shadow-[0_0_20px_rgba(34,197,94,0.5)] scale-105"
                             : "bg-[#242a32]"
-                        }`}
+                          }`}
                       >
                         <img
                           src={
@@ -308,9 +337,8 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
 
                       {/* Floating Mic status marker */}
                       <span
-                        className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center shadow-lg border-2 border-[#161c23] ${
-                          p.isMuted ? "bg-[#ef4444] text-white" : "bg-[#22c55e] text-[#003915]"
-                        }`}
+                        className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center shadow-lg border-2 border-[#161c23] ${p.isMuted ? "bg-[#ef4444] text-white" : "bg-[#22c55e] text-[#003915]"
+                          }`}
                       >
                         {p.isMuted ? <MicOff className="w-3 h-3" /> : <Mic className="w-3 h-3" />}
                       </span>
@@ -330,12 +358,7 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
                     </span>
 
                     {speakerActive ? (
-                      <div className="flex items-end gap-1 h-3.5">
-                        <span className="w-1 bg-[#22c55e] rounded-full animate-audio-bar-1 h-3"></span>
-                        <span className="w-1 bg-[#22c55e] rounded-full animate-audio-bar-2 h-4"></span>
-                        <span className="w-1 bg-[#22c55e] rounded-full animate-audio-bar-3 h-2.5"></span>
-                        <span className="w-1 bg-[#22c55e] rounded-full animate-audio-bar-4 h-3.5"></span>
-                      </div>
+                      <TacticalEqualizer isActive={true} barCount={4} size="sm" />
                     ) : (
                       <div className="flex items-center gap-1 text-[11px] text-[#94a3b8]">
                         <Headphones className="w-3 h-3" />
@@ -343,7 +366,7 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
                       </div>
                     )}
                   </div>
-                </div>
+                </motion.div>
               );
             })}
 
@@ -358,23 +381,13 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
                     <span className="material-symbols-outlined text-2xl opacity-60">person_add</span>
                   </div>
                   <div>
-                    <h4 className="font-bold text-sm text-[#dde3ed]">Open Speaking Slot</h4>
-                    <p className="text-xs text-[#94a3b8] mt-0.5">
-                      Learners from the lobby can join in real-time
-                    </p>
+                    <span className="font-semibold text-sm text-[#dde3ed] block">
+                      Empty Speaker Seat
+                    </span>
+                    <span className="text-xs text-[#94a3b8]">
+                      Invite a language peer or share room link
+                    </span>
                   </div>
-                  <button
-                    onClick={() => {
-                      if (typeof window !== "undefined") {
-                        navigator.clipboard.writeText(window.location.href);
-                        alert("Room invitation link copied to clipboard!");
-                      }
-                    }}
-                    className="px-3.5 py-1.5 rounded-lg bg-[#242a32] hover:bg-[#2f353d] text-xs font-semibold text-[#22c55e] border border-[#2a3340] transition-colors flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Copy Invite Link</span>
-                  </button>
                 </div>
               )
             )}
@@ -402,51 +415,57 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
           {/* Quick Reaction Bar */}
           <div className="flex items-center justify-between py-2 border-b border-[#2a3340]/60 gap-1 overflow-x-auto">
             {["🎯", "👏", "❤️", "😂", "🔥", "💡"].map((emoji) => (
-              <button
+              <motion.button
                 key={emoji}
-                onClick={() => sendReaction(emoji)}
-                className="w-8 h-8 rounded-lg bg-[#1a2027] hover:bg-[#242a32] hover:scale-110 active:scale-95 transition-all text-base flex items-center justify-center border border-[#2a3340] cursor-pointer"
+                whileHover={{ scale: 1.2 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={() => handleTriggerReaction(emoji)}
+                className="w-8 h-8 rounded-lg bg-[#1a2027] hover:bg-[#242a32] transition-colors text-base flex items-center justify-center border border-[#2a3340] cursor-pointer"
                 title={`Send ${emoji}`}
               >
                 {emoji}
-              </button>
+              </motion.button>
             ))}
           </div>
 
-          {/* Messages Stream */}
+          {/* Messages Stream with AnimatePresence */}
           <div className="flex-1 overflow-y-auto py-3 space-y-3 pr-1">
-            {messages.map((msg) => {
-              const isSenderHost = msg.sender.name === "Alex Miller";
+            <AnimatePresence initial={false}>
+              {messages.map((msg) => {
+                const isSenderHost = msg.sender.name === "Alex Miller";
 
-              return (
-                <div
-                  key={msg.id}
-                  className={`p-3 rounded-xl flex flex-col gap-1 text-xs border ${
-                    msg.isHighlighted
-                      ? "bg-[#22c55e]/10 border-[#22c55e]/40 text-[#dde3ed]"
-                      : isSenderHost
-                      ? "bg-[#1a2027] border-[#2a3340] text-[#dde3ed]"
-                      : "bg-[#1a2027]/70 border-[#2a3340]/60 text-[#dde3ed]"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`font-bold ${isSenderHost ? "text-[#22c55e]" : "text-[#c0c7d4]"}`}>
-                        {msg.sender.name}
-                      </span>
-                      {isSenderHost && (
-                        <span className="text-[9px] uppercase px-1 py-0.2 rounded bg-[#242a32] text-[#22c55e] border border-[#2a3340]">
-                          Host
+                return (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, y: 10, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ type: "spring", stiffness: 450, damping: 25 }}
+                    className={`p-3 rounded-xl flex flex-col gap-1 text-xs border ${msg.isHighlighted
+                        ? "bg-[#22c55e]/10 border-[#22c55e]/40 text-[#dde3ed]"
+                        : isSenderHost
+                          ? "bg-[#1a2027] border-[#2a3340] text-[#dde3ed]"
+                          : "bg-[#1a2027]/70 border-[#2a3340]/60 text-[#dde3ed]"
+                      }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`font-bold ${isSenderHost ? "text-[#22c55e]" : "text-[#c0c7d4]"}`}>
+                          {msg.sender.name}
                         </span>
-                      )}
+                        {isSenderHost && (
+                          <span className="text-[9px] uppercase px-1 py-0.2 rounded bg-[#242a32] text-[#22c55e] border border-[#2a3340]">
+                            Host
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-[#94a3b8] font-mono">{msg.createdAt}</span>
                     </div>
-                    <span className="text-[10px] text-[#94a3b8] font-mono">{msg.createdAt}</span>
-                  </div>
 
-                  <p className="text-xs leading-relaxed break-words font-sans">{msg.content}</p>
-                </div>
-              );
-            })}
+                    <p className="text-xs leading-relaxed break-words font-sans">{msg.content}</p>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
             <div ref={messagesEndRef} />
           </div>
 
@@ -460,13 +479,15 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
                 placeholder="Type a word, phrase or translation..."
                 className="w-full bg-[#1a2027] text-[#dde3ed] placeholder:text-[#94a3b8] text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-[#2a3340] focus:outline-none focus:border-[#22c55e] focus:ring-1 focus:ring-[#22c55e] pr-12 transition-all"
               />
-              <button
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
                 type="submit"
                 disabled={!inputText.trim()}
                 className="absolute right-2 p-1.5 rounded-lg bg-[#22c55e] text-[#003915] hover:bg-[#4be277] disabled:opacity-40 disabled:hover:bg-[#22c55e] transition-colors cursor-pointer"
               >
                 <Send className="w-4 h-4" />
-              </button>
+              </motion.button>
             </div>
           </form>
         </aside>

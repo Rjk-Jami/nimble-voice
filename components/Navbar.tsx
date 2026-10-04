@@ -3,6 +3,16 @@
 import React from "react";
 import { useUIStore, useRoomStore, useAuthStore } from "@/stores";
 import { Plus, Coffee, Settings } from "lucide-react";
+import { motion } from "framer-motion";
+import { TabGlider } from "./motion/TabGlider";
+import { TacticalEqualizer } from "./motion/TacticalEqualizer";
+
+const NAV_TABS = [
+  { id: "rooms", label: "Rooms" },
+  { id: "topics", label: "Topics & Starters" },
+  { id: "community", label: "Community & Safety" },
+  { id: "about", label: "About" },
+] as const;
 
 export function Navbar() {
   const {
@@ -14,7 +24,6 @@ export function Navbar() {
     setProfileOpen,
   } = useUIStore();
 
-  const currentRoom = useRoomStore((s) => s.currentRoom);
   const user = useAuthStore((s) => s.user);
 
   return (
@@ -22,7 +31,9 @@ export function Navbar() {
       <div className="h-16 w-full px-4 sm:px-6 flex items-center justify-between gap-3 max-w-[1680px] mx-auto">
         {/* Brand & Main Links */}
         <div className="flex items-center gap-6">
-          <button
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             onClick={() => setActiveTab("rooms")}
             className="flex items-center gap-2.5 shrink-0 focus:outline-none group text-left cursor-pointer"
           >
@@ -40,67 +51,51 @@ export function Navbar() {
                 Free4Talk Protocol
               </span>
             </div>
-          </button>
+          </motion.button>
 
-          <nav className="hidden md:flex items-center gap-1">
-            <button
-              onClick={() => setActiveTab("rooms")}
-              className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
-                activeTab === "rooms"
-                  ? "bg-[#242a32] text-[#22c55e] shadow-sm"
-                  : "text-[#94a3b8] hover:text-[#dde3ed] hover:bg-[#242a32]/50"
-              }`}
-            >
-              Rooms
-            </button>
-            <button
-              onClick={() => setActiveTab("topics")}
-              className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
-                activeTab === "topics"
-                  ? "bg-[#242a32] text-[#22c55e] shadow-sm"
-                  : "text-[#94a3b8] hover:text-[#dde3ed] hover:bg-[#242a32]/50"
-              }`}
-            >
-              Topics & Starters
-            </button>
-            <button
-              onClick={() => setActiveTab("community")}
-              className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
-                activeTab === "community"
-                  ? "bg-[#242a32] text-[#22c55e] shadow-sm"
-                  : "text-[#94a3b8] hover:text-[#dde3ed] hover:bg-[#242a32]/50"
-              }`}
-            >
-              Community & Safety
-            </button>
-            <button
-              onClick={() => setActiveTab("about")}
-              className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
-                activeTab === "about"
-                  ? "bg-[#242a32] text-[#22c55e] shadow-sm"
-                  : "text-[#94a3b8] hover:text-[#dde3ed] hover:bg-[#242a32]/50"
-              }`}
-            >
-              About
-            </button>
+          <nav className="hidden md:flex items-center gap-1 relative">
+            {NAV_TABS.map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`relative px-3.5 py-1.5 rounded-xl text-sm font-semibold transition-colors cursor-pointer select-none ${isActive ? "text-[#22c55e]" : "text-[#94a3b8] hover:text-[#dde3ed]"
+                    }`}
+                >
+                  {isActive && (
+                    <TabGlider
+                      layoutId="navbar-active-tab"
+                      className="absolute inset-0 bg-[#242a32] rounded-xl -z-10 shadow-sm border border-[#2a3340]"
+                    />
+                  )}
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
           </nav>
         </div>
 
         {/* Action Controls & User Tray */}
         <div className="flex items-center gap-3">
           {/* Quick Create Group Button */}
-          <button
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.96 }}
+            transition={{ type: "spring", stiffness: 450, damping: 20 }}
             onClick={() => openCreateModal()}
-            className="flex items-center gap-1.5 bg-[#22c55e] text-[#003915] px-3.5 py-1.5 rounded-lg font-semibold text-xs sm:text-sm hover:bg-[#4be277] transition-all shadow-[0_0_15px_rgba(34,197,94,0.3)] active:scale-95 cursor-pointer"
+            className="flex items-center gap-1.5 bg-[#22c55e] text-[#003915] px-3.5 py-1.5 rounded-lg font-semibold text-xs sm:text-sm hover:bg-[#4be277] transition-colors shadow-[0_0_15px_rgba(34,197,94,0.3)] cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">Create a new group</span>
             <span className="sm:hidden">Create</span>
-          </button>
+          </motion.button>
 
           {/* Social / Coffee Links */}
           <div className="hidden lg:flex items-center gap-1 text-[#94a3b8] border-l border-[#2a3340] pl-3">
-            <button
+            <motion.button
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.96 }}
               onClick={() =>
                 alert("Coffee Support: Thank you for keeping NimbleVoice servers running free for learners worldwide!")
               }
@@ -108,8 +103,10 @@ export function Navbar() {
             >
               <Coffee className="w-3.5 h-3.5 text-[#eab308]" />
               <span>Buy me a coffee</span>
-            </button>
-            <a
+            </motion.button>
+            <motion.a
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.96 }}
               href="https://discord.com"
               target="_blank"
               rel="noreferrer"
@@ -117,27 +114,26 @@ export function Navbar() {
             >
               <span className="material-symbols-outlined text-base text-[#60a5fa]">forum</span>
               <span>Discord</span>
-            </a>
+            </motion.a>
           </div>
 
           {/* Audio Input Level Indicator */}
-          <button
+          <motion.button
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.96 }}
             onClick={() => setCalibrationOpen(true)}
             title="Audio Hardware & Calibration"
-            className="hidden sm:flex items-center gap-1.5 h-8 px-2.5 bg-[#1a2027] hover:bg-[#242a32] border border-[#2a3340] rounded-lg transition-colors cursor-pointer text-[#94a3b8] hover:text-[#dde3ed]"
+            className="hidden sm:flex items-center gap-2 h-8 px-2.5 bg-[#1a2027] hover:bg-[#242a32] border border-[#2a3340] rounded-lg transition-colors cursor-pointer text-[#94a3b8] hover:text-[#dde3ed]"
           >
             <span className="material-symbols-outlined text-sm text-[#22c55e]">mic</span>
-            <div className="flex items-end gap-0.5 h-3">
-              <span className="w-1 bg-[#22c55e] rounded-full animate-audio-bar-1 h-2"></span>
-              <span className="w-1 bg-[#22c55e] rounded-full animate-audio-bar-2 h-3"></span>
-              <span className="w-1 bg-[#22c55e] rounded-full animate-audio-bar-3 h-1.5"></span>
-              <span className="w-1 bg-[#2f353d] rounded-full h-1"></span>
-            </div>
-          </button>
+            <TacticalEqualizer isActive={true} barCount={4} size="sm" />
+          </motion.button>
 
           {/* User Profile Avatar */}
           <div className="relative flex items-center">
-            <button
+            <motion.button
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.94 }}
               onClick={() => setProfileOpen(true)}
               className="relative p-0.5 rounded-full hover:ring-2 hover:ring-[#22c55e] transition-all cursor-pointer focus:outline-none"
               title={`${user?.name || "Profile"} (Your Account)`}
@@ -151,17 +147,20 @@ export function Navbar() {
                 className="w-8 h-8 rounded-full object-cover border border-[#2a3340]"
               />
               <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#22c55e] ring-2 ring-[#161c23]"></span>
-            </button>
+            </motion.button>
           </div>
 
           {/* General Settings Button */}
-          <button
+          <motion.button
+            whileHover={{ scale: 1.1, rotate: 15 }}
+            whileTap={{ scale: 0.9 }}
+            transition={{ type: "spring", stiffness: 400, damping: 20 }}
             onClick={() => setSettingsOpen(true)}
             className="p-1.5 rounded-lg text-[#94a3b8] hover:text-[#dde3ed] hover:bg-[#242a32] transition-colors cursor-pointer"
             title="Settings"
           >
             <Settings className="w-5 h-5" />
-          </button>
+          </motion.button>
         </div>
       </div>
     </header>
