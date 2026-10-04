@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useRooms } from "@/hooks";
-import { useUIStore } from "@/stores";
+import { useUIStore, useVoiceStore } from "@/stores";
 import { Language, LANGUAGE_FLAGS } from "@/enums";
 import { Search, PlusCircle, Headphones, X, Users, Disc3, ShieldCheck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -12,7 +12,6 @@ import { StaggerContainer, StaggerItem } from "./motion/StaggerList";
 import { MotionCard } from "./motion/MotionCard";
 import { SpeakingRipple } from "./motion/SpeakingRipple";
 import { TacticalEqualizer } from "./motion/TacticalEqualizer";
-
 
 export function LobbyView() {
   const {
@@ -28,6 +27,7 @@ export function LobbyView() {
   } = useRooms();
 
   const openCreateModal = useUIStore((s) => s.openCreateModal);
+  const networkLatency = useVoiceStore((s) => s.networkLatency);
 
   const languageOptions = Object.values(Language);
 
@@ -207,7 +207,7 @@ export function LobbyView() {
             {rooms.length} available
           </span>
         </h2>
-        <span className="text-xs text-[#94a3b8]">Live mesh connection • 24ms</span>
+        <span className="text-xs text-[#94a3b8]">Live mesh connection • {networkLatency}ms</span>
       </div>
 
       {rooms.length === 0 ? (
@@ -295,7 +295,7 @@ export function LobbyView() {
                         <div
                           key={participant.id}
                           className="relative group/avatar"
-                          title={`${participant.name} (${participant.location || ""}) - ${participant.cefrPortfolio[room.language] || "Learner"}`}
+                          title={`${participant.name} (${participant.location || ""}) - ${participant.cefrPortfolio?.[room.language] || "Learner"}`}
                         >
                           {/* Animated concentric ripple when speaking */}
                           {participant.isSpeaking && (

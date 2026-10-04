@@ -1,13 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
 import useSWR from "swr";
 import { API_PATHS } from "@/lib/apiPaths";
-import { useLobbyStore, useRoomStore } from "@/stores";
+import { useLobbyStore, useRoomStore, useAuthStore } from "@/stores";
 import { VoiceRoom } from "@/types";
 import { Language, CEFRLevel, RoomStatus } from "@/enums";
 import { CreateRoomInput } from "@/schemas";
 import { LANGUAGE_FLAGS } from "@/enums";
+import { socketService } from "@/lib/socket";
 
 export function useRooms() {
   const {
@@ -16,13 +17,77 @@ export function useRooms() {
     selectedLanguage,
     activeFilter,
     liveStats,
+    setRooms,
+    setLiveStats,
     setSearchQuery,
     setSelectedLanguage,
     setActiveFilter,
     addRoom,
   } = useLobbyStore();
 
+  const user = useAuthStore((s) => s.user);
   const joinRoomInStore = useRoomStore((s) => s.joinRoom);
+
+  // Synchronize live rooms catalog & telemetry from Socket.io signaling server
+  useEffect(() => {
+    const socket = socketService.connect();
+
+    socketService.fetchRooms().then((rooms) => {
+      if (rooms && rooms.length > 0) {
+        setRooms(rooms);
+      }
+    });
+
+    socketService.fetchStats().then((stats) => {
+      if (stats) {
+        setLiveStats(stats);
+      }
+    });
+
+    const handleRoomsUpdated = (updatedRooms: VoiceRoom[]) => {
+      if (updatedRooms && Array.isArray(updatedRooms)) {
+        setRooms(updatedRooms);
+
+        // Also update current active room if currently inside one
+        const activeRoom = useRoomStore.getState().currentRoom;
+        if (activeRoom) {
+          const matchingUpdated = updatedRooms.find((r) => r.id === activeRoom.id);
+          if (matchingUpdated) {
+            const currentUser = useAuthStore.getState().user;
+            const updatedParticipants = [...matchingUpdated.participants];
+            if (currentUser && !updatedParticipants.some((p) => p.id === currentUser.id)) {
+              const myParticipant = activeRoom.participants.find((p) => p.id === currentUser.id);
+              if (myParticipant) {
+                updatedParticipants.unshift(myParticipant);
+              }
+            }
+            useRoomStore.setState({
+              currentRoom: {
+                ...activeRoom,
+                currentSlots: Math.max(matchingUpdated.currentSlots, updatedParticipants.length),
+                hasFreeSeats: matchingUpdated.hasFreeSeats,
+                participants: updatedParticipants.length > 0 ? updatedParticipants : activeRoom.participants,
+              },
+            });
+          }
+        }
+      }
+    };
+
+    const handleStatsUpdated = (stats: any) => {
+      if (stats) {
+        setLiveStats(stats);
+      }
+    };
+
+    socket.on("rooms:updated", handleRoomsUpdated);
+    socket.on("stats:updated", handleStatsUpdated);
+
+    return () => {
+      socket.off("rooms:updated", handleRoomsUpdated);
+      socket.off("stats:updated", handleStatsUpdated);
+    };
+  }, [setRooms, setLiveStats]);
 
   // SWR configuration with API_PATHS
   const { data: serverRooms, mutate } = useSWR<VoiceRoom[]>(API_PATHS.ROOMS.LIST, {
@@ -103,11 +168,16 @@ export function useRooms() {
       messages: [],
     };
 
-    // Optimistic update
+    // Optimistic local update & socket broadcast to all peers
     addRoom(newRoom);
-    joinRoomInStore(newRoom, hostUser.id);
+    socketService.createRoom(newRoom);
+    joinRoomInStore(newRoom, hostUser);
     mutate([newRoom, ...roomsList], false);
     return newRoom;
+  };
+
+  const joinRoom = (room: VoiceRoom) => {
+    joinRoomInStore(room, user);
   };
 
   return {
@@ -121,7 +191,7 @@ export function useRooms() {
     setSelectedLanguage,
     setActiveFilter,
     createRoom,
-    joinRoom: joinRoomInStore,
+    joinRoom,
     refreshRooms: () => mutate(),
   };
 }

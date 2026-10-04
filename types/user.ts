@@ -12,6 +12,8 @@ export interface User {
   karma: number;
   hoursSpoken: number;
   streak: number;
+  totalRoomsJoined?: number;
+  frequentPartnersCount?: number;
   isGuest?: boolean;
 }
 

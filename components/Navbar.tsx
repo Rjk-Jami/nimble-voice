@@ -1,7 +1,7 @@
 "use client";
 
-import React from "react";
-import { useUIStore, useRoomStore, useAuthStore } from "@/stores";
+import React, { useEffect } from "react";
+import { useUIStore, useRoomStore, useAuthStore, useVoiceStore } from "@/stores";
 import { Plus, Coffee, Settings } from "lucide-react";
 import { motion } from "framer-motion";
 import { TabGlider } from "./motion/TabGlider";
@@ -25,6 +25,14 @@ export function Navbar() {
   } = useUIStore();
 
   const user = useAuthStore((s) => s.user);
+  const initUser = useAuthStore((s) => s.initUser);
+  const isMuted = useVoiceStore((s) => s.isMuted);
+  const isSpeaking = useVoiceStore((s) => (user?.id ? !!s.speakingMap[user.id] : false));
+
+  // Initialize client-side user from localStorage after initial hydration
+  useEffect(() => {
+    initUser();
+  }, [initUser]);
 
   return (
     <header className="fixed top-0 left-0 right-0 w-full z-50 bg-[#161c23]/95 backdrop-blur-md border-b border-[#2a3340]/60 shadow-[0_1px_12px_rgba(0,0,0,0.5)]">
@@ -126,7 +134,7 @@ export function Navbar() {
             className="hidden sm:flex items-center gap-2 h-8 px-2.5 bg-[#1a2027] hover:bg-[#242a32] border border-[#2a3340] rounded-lg transition-colors cursor-pointer text-[#94a3b8] hover:text-[#dde3ed]"
           >
             <span className="material-symbols-outlined text-sm text-[#22c55e]">mic</span>
-            <TacticalEqualizer isActive={true} barCount={4} size="sm" />
+            <TacticalEqualizer isActive={!isMuted && isSpeaking} barCount={4} size="sm" />
           </motion.button>
 
           {/* User Profile Avatar */}
@@ -137,6 +145,7 @@ export function Navbar() {
               onClick={() => setProfileOpen(true)}
               className="relative p-0.5 rounded-full hover:ring-2 hover:ring-[#22c55e] transition-all cursor-pointer focus:outline-none"
               title={`${user?.name || "Profile"} (Your Account)`}
+              suppressHydrationWarning
             >
               <img
                 src={
@@ -145,6 +154,7 @@ export function Navbar() {
                 }
                 alt="Profile avatar"
                 className="w-8 h-8 rounded-full object-cover border border-[#2a3340]"
+                suppressHydrationWarning
               />
               <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#22c55e] ring-2 ring-[#161c23]"></span>
             </motion.button>

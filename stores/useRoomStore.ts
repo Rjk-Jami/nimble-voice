@@ -1,12 +1,13 @@
 import { create } from "zustand";
-import { VoiceRoom, Participant } from "@/types";
+import { VoiceRoom, Participant, User } from "@/types";
+import { useAuthStore } from "./useAuthStore";
 
 interface RoomState {
   currentRoom: VoiceRoom | null;
   isJoining: boolean;
   isHost: boolean;
   setCurrentRoom: (room: VoiceRoom | null) => void;
-  joinRoom: (room: VoiceRoom, currentUserId?: string) => void;
+  joinRoom: (room: VoiceRoom, user?: User | null) => void;
   leaveRoom: () => void;
   updateParticipant: (participantId: string, updates: Partial<Participant>) => void;
   addParticipant: (participant: Participant) => void;
@@ -18,18 +19,47 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   isJoining: false,
   isHost: false,
 
-  setCurrentRoom: (currentRoom) =>
+  setCurrentRoom: (currentRoom) => {
+    const currentUserId = useAuthStore.getState().user?.id || "guest";
     set({
       currentRoom,
-      isHost: currentRoom?.host.id === "user-alex-1" || currentRoom?.host.id === "p-1",
-    }),
+      isHost:
+        currentRoom?.host.id === currentUserId ||
+        (currentRoom?.participants.some((p) => p.id === currentUserId && p.isHost) ?? false),
+    });
+  },
 
-  joinRoom: (room, currentUserId = "p-1") =>
+  joinRoom: (room, currentUser) => {
+    const user = currentUser !== undefined ? currentUser : useAuthStore.getState().user;
+    const currentUserId = user?.id || "guest";
+    const isHost =
+      room.host.id === currentUserId ||
+      room.participants.some((p) => p.id === currentUserId && p.isHost);
+
+    let participants = [...room.participants];
+    if (user && !participants.some((p) => p.id === user.id)) {
+      const userParticipant: Participant = {
+        ...user,
+        isHost,
+        isSpeaking: false,
+        isMuted: false,
+        isDeafened: false,
+        handRaised: false,
+      };
+      // Place current user at front for stage preview
+      participants = [userParticipant, ...participants];
+    }
+
     set({
-      currentRoom: room,
-      isHost: room.host.id === currentUserId || room.participants.some((p) => p.id === currentUserId && p.isHost),
+      currentRoom: {
+        ...room,
+        participants,
+        currentSlots: Math.max(room.currentSlots, participants.length),
+      },
+      isHost,
       isJoining: false,
-    }),
+    });
+  },
 
   leaveRoom: () =>
     set({
@@ -58,8 +88,19 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     const { currentRoom } = get();
     if (!currentRoom) return;
 
-    // check if already added
-    if (currentRoom.participants.some((p) => p.id === participant.id)) return;
+    // Check if already added: if so, update their record
+    if (currentRoom.participants.some((p) => p.id === participant.id)) {
+      const updated = currentRoom.participants.map((p) =>
+        p.id === participant.id ? { ...p, ...participant } : p
+      );
+      set({
+        currentRoom: {
+          ...currentRoom,
+          participants: updated,
+        },
+      });
+      return;
+    }
 
     const updated = [...currentRoom.participants, participant];
     set({

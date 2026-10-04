@@ -3,10 +3,22 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRoomStore, useVoiceStore } from "@/stores";
 import { VoiceRoom } from "@/types";
+import { useWebRTC } from "./useWebRTC";
 
 export function useVoiceRoom(room: VoiceRoom | null) {
   const currentRoom = useRoomStore((s) => s.currentRoom) || room;
   const leaveRoom = useRoomStore((s) => s.leaveRoom);
+
+  // Initialize WebRTC peer mesh and Socket.io signaling
+  const {
+    localStream,
+    remotePeers,
+    remoteScreenStream,
+    isSocketConnected,
+    connectionStatus,
+    shareScreen,
+    switchAudioInput,
+  } = useWebRTC(currentRoom?.id);
 
   const {
     isMuted,
@@ -23,20 +35,26 @@ export function useVoiceRoom(room: VoiceRoom | null) {
     resetVoiceState,
   } = useVoiceStore();
 
-  const [callDurationSeconds, setCallDurationSeconds] = useState<number>(
-    (currentRoom?.activeSinceMinutes || 0) * 60
-  );
+  // Synchronized active room duration based on room's creation timestamp
+  const calculateElapsedSeconds = useCallback(() => {
+    if (!currentRoom?.startedAt) return (currentRoom?.activeSinceMinutes || 0) * 60;
+    const startedMs = new Date(currentRoom.startedAt).getTime();
+    if (isNaN(startedMs)) return (currentRoom?.activeSinceMinutes || 0) * 60;
+    return Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
+  }, [currentRoom?.startedAt, currentRoom?.activeSinceMinutes]);
 
-  // Live in-call timer
+  const [callDurationSeconds, setCallDurationSeconds] = useState<number>(calculateElapsedSeconds);
+
+  // Live in-call timer ticking every second
   useEffect(() => {
-    if (!currentRoom) return;
+    setCallDurationSeconds(calculateElapsedSeconds());
 
     const timer = setInterval(() => {
-      setCallDurationSeconds((prev) => prev + 1);
+      setCallDurationSeconds(calculateElapsedSeconds());
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [currentRoom]);
+  }, [calculateElapsedSeconds]);
 
   // Format call timer into mm:ss or hh:mm:ss
   const formatDuration = useCallback((seconds: number) => {
@@ -68,6 +86,13 @@ export function useVoiceRoom(room: VoiceRoom | null) {
     toggleDeafen,
     toggleScreenShare,
     toggleHandRaised,
+    localStream,
+    remotePeers,
+    remoteScreenStream,
+    isSocketConnected,
+    connectionStatus,
+    shareScreen,
+    switchAudioInput,
     leaveRoom: handleLeave,
   };
 }

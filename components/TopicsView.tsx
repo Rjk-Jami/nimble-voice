@@ -13,6 +13,7 @@ import { MotionCard } from "./motion/MotionCard";
 
 export function TopicsView() {
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [customPrompt, setCustomPrompt] = useState<string>("");
   const openCreateModal = useUIStore((s) => s.openCreateModal);
 
   const categories = ["All", ...TOPIC_PROMPTS.map((c) => c.category)];
@@ -59,6 +60,31 @@ export function TopicsView() {
           <span>Pick Random Topic</span>
         </MotionButton>
       </motion.div>
+
+      {/* Dynamic Custom Prompt Creator */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-[#161c23] border border-[#2a3340] p-4 rounded-2xl shadow-md">
+        <input
+          type="text"
+          value={customPrompt}
+          onChange={(e) => setCustomPrompt(e.target.value)}
+          placeholder="Type your own custom conversation topic or icebreaker question..."
+          className="flex-1 bg-[#1a2027] text-xs sm:text-sm text-[#dde3ed] placeholder:text-[#94a3b8] px-4 py-2.5 rounded-xl border border-[#2a3340] focus:border-[#22c55e] focus:outline-none"
+        />
+        <MotionButton
+          variant="primary"
+          size="sm"
+          disabled={!customPrompt.trim()}
+          onClick={() => {
+            if (!customPrompt.trim()) return;
+            openCreateModal(customPrompt.trim());
+            setCustomPrompt("");
+          }}
+          className="shrink-0"
+        >
+          <Lightbulb className="w-4 h-4" />
+          <span>Launch Room With Topic</span>
+        </MotionButton>
+      </div>
 
       {/* Category Filter Pills with Glider */}
       <div className="flex items-center gap-2 overflow-x-auto pb-1 relative">

@@ -29,18 +29,69 @@ export function AudioCalibrationModal() {
     setEchoCancellation,
   } = useSettingsStore();
 
-  const [micLevel, setMicLevel] = useState<number>(45);
+  const [micLevel, setMicLevel] = useState<number>(0);
   const [isPlayingTestChime, setIsPlayingTestChime] = useState<boolean>(false);
 
+  // Real-time microphone audio level analyzer
   useEffect(() => {
-    if (!isCalibrationOpen) return;
-    const interval = setInterval(() => {
-      // simulate realistic fluctuation
-      const base = 35 + Math.floor(Math.random() * 45);
-      setMicLevel(base);
-    }, 100);
-    return () => clearInterval(interval);
-  }, [isCalibrationOpen]);
+    if (!isCalibrationOpen) {
+      setMicLevel(0);
+      return;
+    }
+
+    let mounted = true;
+    let stream: MediaStream | null = null;
+    let audioCtx: AudioContext | null = null;
+    let analyser: AnalyserNode | null = null;
+    let timer: NodeJS.Timeout | null = null;
+
+    const setupMic = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId: audioInputId ? { exact: audioInputId } : undefined,
+            noiseSuppression,
+            echoCancellation,
+          },
+        });
+
+        if (!mounted) return;
+
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtx) return;
+
+        audioCtx = new AudioCtx();
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        const source = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        timer = setInterval(() => {
+          if (!analyser || !mounted) return;
+          analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+          }
+          const avg = sum / dataArray.length;
+          const level = Math.min(100, Math.round((avg / 128) * 100));
+          setMicLevel(level);
+        }, 80);
+      } catch (err) {
+        if (mounted) setMicLevel(0);
+      }
+    };
+
+    setupMic();
+
+    return () => {
+      mounted = false;
+      if (timer) clearInterval(timer);
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      if (audioCtx && audioCtx.state !== "closed") audioCtx.close().catch(() => {});
+    };
+  }, [isCalibrationOpen, audioInputId, noiseSuppression, echoCancellation]);
 
   const handleTestSpeaker = () => {
     setIsPlayingTestChime(true);

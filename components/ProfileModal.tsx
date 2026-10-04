@@ -1,8 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { useAuthStore, useUIStore } from "@/stores";
-import { User, Flame, Award, Sliders } from "lucide-react";
+import { User, Flame, Award, Sliders, Edit2, Check, X } from "lucide-react";
 import { LANGUAGE_FLAGS, Language } from "@/enums";
 import { MotionButton } from "./motion/MotionButton";
 import { MotionModal } from "./motion/MotionModal";
@@ -13,53 +13,146 @@ export function ProfileModal() {
   const setCalibrationOpen = useUIStore((s) => s.setCalibrationOpen);
 
   const user = useAuthStore((s) => s.user);
+  const updateProfile = useAuthStore((s) => s.updateProfile);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [name, setName] = useState(user?.name || "");
+  const [location, setLocation] = useState(user?.location || "");
+  const [nativeLanguage, setNativeLanguage] = useState(user?.nativeLanguage || "English");
+  const [learningLanguage, setLearningLanguage] = useState(user?.learningLanguage || "Spanish");
+
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    updateProfile({
+      name: name.trim(),
+      location: location.trim() || "Global",
+      nativeLanguage,
+      learningLanguage,
+      isGuest: false,
+    });
+    setIsEditing(false);
+  };
 
   return (
     <MotionModal
       isOpen={isProfileOpen && !!user}
       onClose={() => setProfileOpen(false)}
-      title="Learner Profile & Portfolio"
+      title="Learner Profile & Identity"
       icon={<User className="w-4 h-4" />}
       maxWidth="max-w-xl"
     >
       {user && (
-        <>
+        <div className="flex flex-col gap-4">
           {/* User Card Top */}
-          <div className="flex items-center gap-4 bg-[#1a2027] border border-[#2a3340] p-4 rounded-xl">
-            <div className="relative">
-              <img
-                src={
-                  user.avatarUrl ||
-                  "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"
-                }
-                alt={user.name}
-                className="w-16 h-16 rounded-full object-cover border-2 border-[#22c55e]"
-              />
-              <span className="absolute bottom-0 right-0 w-4 h-4 rounded-full bg-[#22c55e] border-2 border-[#1a2027]"></span>
+          <div className="flex items-center justify-between bg-[#1a2027] border border-[#2a3340] p-4 rounded-xl">
+            <div className="flex items-center gap-4">
+              <div className="relative">
+                <img
+                  src={
+                    user.avatarUrl ||
+                    `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.name)}`
+                  }
+                  alt={user.name}
+                  className="w-16 h-16 rounded-full object-cover border-2 border-[#22c55e]"
+                />
+                <span className="absolute bottom-0 right-0 w-4 h-4 rounded-full bg-[#22c55e] border-2 border-[#1a2027]"></span>
+              </div>
+
+              <div className="flex flex-col">
+                <div className="flex items-center gap-2">
+                  <h4 className="font-bold text-base text-[#dde3ed]">{user.name}</h4>
+                  <span
+                    className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border ${
+                      user.isGuest
+                        ? "bg-[#eab308]/15 text-[#eab308] border-[#eab308]/30"
+                        : "bg-[#22c55e]/20 text-[#22c55e] border-[#22c55e]/30"
+                    }`}
+                  >
+                    {user.isGuest ? "Guest Mode" : "Active Learner"}
+                  </span>
+                </div>
+                <span className="text-xs text-[#94a3b8]">
+                  {user.location || "Global"} • Native: {user.nativeLanguage} • Learning: {user.learningLanguage}
+                </span>
+                <div className="flex items-center gap-3 mt-1.5 text-xs">
+                  <span className="text-[#dde3ed] font-semibold flex items-center gap-1">
+                    <Award className="w-3.5 h-3.5 text-[#eab308]" />
+                    {user.karma} Karma
+                  </span>
+                  <span className="text-[#dde3ed] font-semibold flex items-center gap-1">
+                    <Flame className="w-3.5 h-3.5 text-[#22c55e]" />
+                    {user.streak} Day Streak
+                  </span>
+                </div>
+              </div>
             </div>
 
-            <div className="flex flex-col">
-              <div className="flex items-center gap-2">
-                <h4 className="font-bold text-base text-[#dde3ed]">{user.name}</h4>
-                <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-[#22c55e]/20 text-[#22c55e] border border-[#22c55e]/30">
-                  Verified Speaker
-                </span>
-              </div>
-              <span className="text-xs text-[#94a3b8]">
-                {user.location || "Global"} • Member since Jan 2026
-              </span>
-              <div className="flex items-center gap-3 mt-1.5 text-xs">
-                <span className="text-[#dde3ed] font-semibold flex items-center gap-1">
-                  <Award className="w-3.5 h-3.5 text-[#eab308]" />
-                  {user.karma} Karma
-                </span>
-                <span className="text-[#dde3ed] font-semibold flex items-center gap-1">
-                  <Flame className="w-3.5 h-3.5 text-[#22c55e]" />
-                  {user.streak} Day Streak
-                </span>
-              </div>
-            </div>
+            <button
+              onClick={() => {
+                setName(user.name);
+                setLocation(user.location || "");
+                setNativeLanguage(user.nativeLanguage);
+                setLearningLanguage(user.learningLanguage);
+                setIsEditing(!isEditing);
+              }}
+              className="p-2 rounded-lg bg-[#242a32] hover:bg-[#2f353d] text-[#94a3b8] hover:text-[#dde3ed] transition-colors cursor-pointer"
+              title="Edit Profile"
+            >
+              <Edit2 className="w-4 h-4" />
+            </button>
           </div>
+
+          {/* Dynamic Inline Editor */}
+          {isEditing && (
+            <form
+              onSubmit={handleSave}
+              className="p-4 rounded-xl bg-[#161c23] border border-[#22c55e]/40 flex flex-col gap-3 animate-fade-in"
+            >
+              <span className="text-xs font-bold text-[#22c55e] uppercase tracking-wider">
+                Edit Display Profile
+              </span>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] text-[#94a3b8]">Your Name</label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="bg-[#1a2027] text-xs text-[#dde3ed] p-2 rounded-lg border border-[#2a3340] focus:border-[#22c55e] focus:outline-none"
+                    placeholder="Enter name"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] text-[#94a3b8]">Location</label>
+                  <input
+                    type="text"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    className="bg-[#1a2027] text-xs text-[#dde3ed] p-2 rounded-lg border border-[#2a3340] focus:border-[#22c55e] focus:outline-none"
+                    placeholder="City, Country"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#2a3340]">
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(false)}
+                  className="px-3 py-1.5 rounded-lg text-xs text-[#94a3b8] hover:text-[#dde3ed] hover:bg-[#242a32]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#22c55e] text-[#003915] text-xs font-bold hover:bg-[#4be277]"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          )}
 
           {/* Spoken & Target Languages Portfolio */}
           <div className="flex flex-col gap-2.5">
@@ -94,18 +187,22 @@ export function ProfileModal() {
             </div>
           </div>
 
-          {/* Speaking Practice Stats */}
+          {/* Dynamic Speaking Practice Stats */}
           <div className="grid grid-cols-3 gap-3 text-center">
             <div className="p-3 bg-[#1a2027] border border-[#2a3340] rounded-xl">
               <span className="text-lg font-bold text-[#22c55e]">{user.hoursSpoken} hrs</span>
               <p className="text-[11px] text-[#94a3b8] mt-0.5">Spoken this month</p>
             </div>
             <div className="p-3 bg-[#1a2027] border border-[#2a3340] rounded-xl">
-              <span className="text-lg font-bold text-[#dde3ed]">42 rooms</span>
+              <span className="text-lg font-bold text-[#dde3ed]">
+                {user.totalRoomsJoined || 1} rooms
+              </span>
               <p className="text-[11px] text-[#94a3b8] mt-0.5">Joined or hosted</p>
             </div>
             <div className="p-3 bg-[#1a2027] border border-[#2a3340] rounded-xl">
-              <span className="text-lg font-bold text-[#dde3ed]">19 peers</span>
+              <span className="text-lg font-bold text-[#dde3ed]">
+                {user.frequentPartnersCount || 0} peers
+              </span>
               <p className="text-[11px] text-[#94a3b8] mt-0.5">Frequent partners</p>
             </div>
           </div>
@@ -131,7 +228,7 @@ export function ProfileModal() {
               Close
             </MotionButton>
           </div>
-        </>
+        </div>
       )}
     </MotionModal>
   );

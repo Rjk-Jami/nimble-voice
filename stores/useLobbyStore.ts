@@ -1,249 +1,141 @@
 import { create } from "zustand";
 import { VoiceRoom } from "@/types";
-import { Language, CEFRLevel, RoomStatus, MessageType } from "@/enums";
+import { Language, CEFRLevel, RoomStatus } from "@/enums";
+
+interface LiveStats {
+  onlineCount: number;
+  activeRoomsCount: number;
+  liveLanguagesCount: number;
+}
 
 interface LobbyState {
   rooms: VoiceRoom[];
   searchQuery: string;
   selectedLanguage: Language;
   activeFilter: string | null;
-  liveStats: {
-    onlineCount: number;
-    activeRoomsCount: number;
-    liveLanguagesCount: number;
-  };
+  liveStats: LiveStats;
   setRooms: (rooms: VoiceRoom[]) => void;
   addRoom: (room: VoiceRoom) => void;
   setSearchQuery: (query: string) => void;
   setSelectedLanguage: (lang: Language) => void;
   setActiveFilter: (filter: string | null) => void;
+  setLiveStats: (stats: Partial<LiveStats>) => void;
 }
 
 export const INITIAL_ROOMS_DATA: VoiceRoom[] = [
   {
-    id: "room-1",
-    title: "Casual Chat & Coffee: Daily life, movies & cultural exchange",
-    topic: "Daily life, movies & cultural exchange",
+    id: "room-english-lounge",
+    title: "Global English Lounge: Casual chat, culture & daily life",
+    topic: "Casual chat, culture & daily life",
     language: Language.ENGLISH,
     flag: "🇬🇧",
     cefrLevel: CEFRLevel.B1,
     levelLabel: "Intermediate B1",
     maxSlots: 6,
-    currentSlots: 4,
+    currentSlots: 0,
     tags: ["Casual & Life", "Culture"],
     status: RoomStatus.LIVE,
-    startedAt: new Date(Date.now() - 38 * 60000).toISOString(),
-    activeSinceMinutes: 38,
+    startedAt: new Date().toISOString(),
+    activeSinceMinutes: 1,
     hasFreeSeats: true,
-    isBeginnerFriendly: false,
-    hasNativeSpeaker: true,
+    isBeginnerFriendly: true,
+    hasNativeSpeaker: false,
     isLive: true,
     host: {
-      id: "p-1",
-      name: "Alex Miller",
+      id: "host-community",
+      name: "Nimble Community Host",
       avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-      location: "San Francisco, CA",
+      location: "Global",
       nativeLanguage: "English",
       learningLanguage: "Spanish",
       isVerified: true,
       cefrPortfolio: { English: CEFRLevel.NATIVE },
-      karma: 142,
-      hoursSpoken: 38.5,
-      streak: 18,
+      karma: 500,
+      hoursSpoken: 120,
+      streak: 45,
     },
-    participants: [
-      {
-        id: "p-1",
-        name: "Alex Miller",
-        avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-        location: "San Francisco, CA",
-        nativeLanguage: "English",
-        learningLanguage: "Spanish",
-        isVerified: true,
-        cefrPortfolio: { English: CEFRLevel.NATIVE },
-        karma: 142,
-        hoursSpoken: 38.5,
-        streak: 18,
-        isHost: true,
-        isSpeaking: true,
-        isMuted: false,
-        isDeafened: false,
-        handRaised: false,
-        audioLevel: 75,
-      },
-      {
-        id: "p-2",
-        name: "Sofia Chen",
-        avatarUrl: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80",
-        location: "Taipei, TW",
-        nativeLanguage: "Mandarin",
-        learningLanguage: "English",
-        isVerified: true,
-        cefrPortfolio: { English: CEFRLevel.B2 },
-        karma: 89,
-        hoursSpoken: 21,
-        streak: 7,
-        isHost: false,
-        isSpeaking: false,
-        isMuted: false,
-        isDeafened: false,
-        handRaised: false,
-        audioLevel: 0,
-      },
-      {
-        id: "p-3",
-        name: "Kenji Sato",
-        avatarUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
-        location: "Tokyo, JP",
-        nativeLanguage: "Japanese",
-        learningLanguage: "English",
-        isVerified: false,
-        cefrPortfolio: { English: CEFRLevel.B1 },
-        karma: 34,
-        hoursSpoken: 12,
-        streak: 3,
-        isHost: false,
-        isSpeaking: false,
-        isMuted: true,
-        isDeafened: false,
-        handRaised: false,
-        audioLevel: 0,
-      },
-      {
-        id: "p-4",
-        name: "Marta Braun",
-        avatarUrl: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80",
-        location: "Berlin, DE",
-        nativeLanguage: "German",
-        learningLanguage: "English",
-        isVerified: true,
-        cefrPortfolio: { English: CEFRLevel.C1 },
-        karma: 95,
-        hoursSpoken: 45,
-        streak: 12,
-        isHost: false,
-        isSpeaking: false,
-        isMuted: false,
-        isDeafened: false,
-        handRaised: false,
-        audioLevel: 0,
-      },
-    ],
-    messages: [
-      {
-        id: "m-1",
-        roomId: "room-1",
-        sender: { id: "p-1", name: "Alex Miller" },
-        content: "Welcome everyone! Today we discuss favorite travel destinations.",
-        type: MessageType.TEXT,
-        createdAt: "14:22",
-      },
-      {
-        id: "m-2",
-        roomId: "room-1",
-        sender: { id: "p-2", name: "Sofia Chen" },
-        content: "Can you write down that English idiom you used earlier?",
-        type: MessageType.TEXT,
-        createdAt: "14:23",
-      },
-      {
-        id: "m-3",
-        roomId: "room-1",
-        sender: { id: "p-1", name: "Alex Miller" },
-        content: '"A blessing in disguise" 🎯',
-        type: MessageType.IDIOM,
-        isHighlighted: true,
-        createdAt: "14:24",
-      },
-      {
-        id: "m-4",
-        roomId: "room-1",
-        sender: { id: "p-3", name: "Kenji Sato" },
-        content: "Arigato! That makes so much sense now.",
-        type: MessageType.TEXT,
-        createdAt: "14:25",
-      },
-    ],
+    participants: [],
+    messages: [],
   },
   {
-    id: "room-2",
-    title: "Spanish for Beginners: Present tense practice & greetings",
-    topic: "Present tense practice & greetings",
+    id: "room-spanish-corner",
+    title: "Spanish Practice Corner: Saludos, viajes y vida cotidiana",
+    topic: "Saludos, viajes y vida cotidiana",
     language: Language.SPANISH,
     flag: "🇪🇸",
-    cefrLevel: CEFRLevel.A1,
-    levelLabel: "Beginner A1",
+    cefrLevel: CEFRLevel.A2,
+    levelLabel: "Beginner A2",
     maxSlots: 5,
-    currentSlots: 3,
+    currentSlots: 0,
     tags: ["Grammar & Vocab", "Beginners"],
     status: RoomStatus.LIVE,
-    startedAt: new Date(Date.now() - 15 * 60000).toISOString(),
-    activeSinceMinutes: 15,
+    startedAt: new Date().toISOString(),
+    activeSinceMinutes: 1,
     hasFreeSeats: true,
     isBeginnerFriendly: true,
-    hasNativeSpeaker: true,
+    hasNativeSpeaker: false,
     isLive: true,
     host: {
-      id: "p-5",
-      name: "Carlos Ruiz",
-      avatarUrl: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80",
+      id: "host-elena",
+      name: "Elena Moderadora",
+      avatarUrl: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80",
       location: "Madrid, ES",
       nativeLanguage: "Spanish",
       learningLanguage: "English",
       isVerified: true,
       cefrPortfolio: { Spanish: CEFRLevel.NATIVE },
-      karma: 210,
-      hoursSpoken: 75,
-      streak: 30,
+      karma: 420,
+      hoursSpoken: 95,
+      streak: 32,
     },
-    participants: [
-      {
-        id: "p-5",
-        name: "Carlos Ruiz",
-        avatarUrl: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80",
-        location: "Madrid, ES",
-        nativeLanguage: "Spanish",
-        learningLanguage: "English",
-        isVerified: true,
-        cefrPortfolio: { Spanish: CEFRLevel.NATIVE },
-        karma: 210,
-        hoursSpoken: 75,
-        streak: 30,
-        isHost: true,
-        isSpeaking: true,
-        isMuted: false,
-        isDeafened: false,
-        handRaised: false,
-        audioLevel: 62,
-      },
-    ],
-    messages: [
-      {
-        id: "m-21",
-        roomId: "room-2",
-        sender: { id: "p-5", name: "Carlos Ruiz" },
-        content: "¡Hola a todos! Bienvenidos al grupo de principiantes.",
-        type: MessageType.TEXT,
-        createdAt: "14:30",
-      },
-    ],
+    participants: [],
+    messages: [],
   },
 ];
 
-export const useLobbyStore = create<LobbyState>((set) => ({
+function calculateStats(rooms: VoiceRoom[], onlineCount = 1): LiveStats {
+  const uniqueLanguages = new Set<string>();
+  rooms.forEach((r) => {
+    if (r.language) uniqueLanguages.add(r.language);
+  });
+  return {
+    onlineCount: Math.max(1, onlineCount),
+    activeRoomsCount: rooms.length,
+    liveLanguagesCount: Math.max(1, uniqueLanguages.size),
+  };
+}
+
+export const useLobbyStore = create<LobbyState>((set, get) => ({
   rooms: INITIAL_ROOMS_DATA,
   searchQuery: "",
   selectedLanguage: Language.ALL,
   activeFilter: "active",
-  liveStats: {
-    onlineCount: 1429,
-    activeRoomsCount: 68,
-    liveLanguagesCount: 14,
-  },
+  liveStats: calculateStats(INITIAL_ROOMS_DATA, 1),
 
-  setRooms: (rooms) => set({ rooms }),
-  addRoom: (room) => set((state) => ({ rooms: [room, ...state.rooms] })),
+  setRooms: (rooms) =>
+    set((state) => ({
+      rooms,
+      liveStats: calculateStats(rooms, state.liveStats.onlineCount),
+    })),
+
+  addRoom: (room) =>
+    set((state) => {
+      const updated = [room, ...state.rooms.filter((r) => r.id !== room.id)];
+      return {
+        rooms: updated,
+        liveStats: calculateStats(updated, state.liveStats.onlineCount),
+      };
+    }),
+
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setSelectedLanguage: (selectedLanguage) => set({ selectedLanguage }),
   setActiveFilter: (activeFilter) => set({ activeFilter }),
+
+  setLiveStats: (stats) =>
+    set((state) => ({
+      liveStats: {
+        ...state.liveStats,
+        ...stats,
+      },
+    })),
 }));

@@ -8,6 +8,7 @@ export interface Participant extends User {
   isMuted: boolean;
   isDeafened: boolean;
   handRaised: boolean;
+  isScreenSharing?: boolean;
   stream?: MediaStream;
   peerId?: string;
   audioLevel?: number; // 0 - 100

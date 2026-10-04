@@ -31,28 +31,7 @@ export default function Home() {
         <AnimatePresence mode="wait">
           {currentRoom ? (
             <PageTransition key={`room-${currentRoom.id}`} className="flex flex-col">
-              {/* Active Session Ribbon */}
-              <motion.div
-                initial={{ opacity: 0, y: -12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -12 }}
-                transition={{ duration: 0.2 }}
-                className="w-full bg-[#161c23] border-b border-[#2a3340]/60 px-6 py-2 flex items-center justify-between text-xs text-[#94a3b8]"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-[#22c55e] animate-ping"></span>
-                  <span className="font-semibold text-[#dde3ed]">Active In-Room Session</span>
-                  <span>•</span>
-                  <span>{currentRoom.title}</span>
-                </div>
-                <button
-                  onClick={leaveRoom}
-                  className="text-[#ef4444] hover:underline font-semibold flex items-center gap-1 cursor-pointer"
-                >
-                  <PhoneOff className="w-3.5 h-3.5" />
-                  <span>Leave call & return to directory</span>
-                </button>
-              </motion.div>
+
 
               <LiveVoiceRoom room={currentRoom} />
             </PageTransition>
