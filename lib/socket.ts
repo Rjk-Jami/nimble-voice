@@ -7,9 +7,7 @@ import {
   SignalingAnswerPayload,
   SignalingIcePayload,
 } from "@/types/webrtc";
-
-const SIGNALING_URL =
-  process.env.NEXT_PUBLIC_SIGNALING_URL || "http://localhost:3002";
+import { ENV } from "@/constants";
 
 class SocketService {
   private socket: Socket | null = null;
@@ -17,25 +15,49 @@ class SocketService {
 
   public getSocket(): Socket {
     if (!this.socket) {
-      this.socket = io(SIGNALING_URL, {
-        autoConnect: false,
-        reconnection: true,
-        reconnectionAttempts: 10,
-        reconnectionDelay: 1000,
-        timeout: 6000,
+      this.socket = io(ENV.SOCKET_URL, {
+        path: ENV.SOCKET_PATH,
         transports: ["websocket", "polling"],
+        withCredentials: true,
+        autoConnect: false,
+
+        reconnection: true,
+        reconnectionAttempts: 15,
+        reconnectionDelay: 1000,
+        timeout: 10000,
+        auth: (cb) => {
+          if (typeof window !== "undefined") {
+            const token =
+              localStorage.getItem("token") ||
+              localStorage.getItem("nimble_auth_token") ||
+              "";
+            cb({
+              token: token ? (token.startsWith("Bearer ") ? token : `Bearer ${token}`) : "",
+            });
+          } else {
+            cb({ token: "" });
+          }
+        },
       });
 
       this.socket.on("connect", () => {
-        console.log(`[SocketService] Connected to signaling server: ${this.socket?.id}`);
+        console.log(`[SocketService] Connected to gateway (${ENV.SOCKET_URL}): ${this.socket?.id}`);
+      });
+
+      this.socket.on("connected", (data) => {
+        console.log("⚡ [SocketService] Go Gateway handshake confirmed:", data);
       });
 
       this.socket.on("connect_error", (error) => {
-        console.warn(`[SocketService] Signaling connection error (signaling server may be offline at ${SIGNALING_URL}):`, error.message);
+        console.warn(
+          `[SocketService] Connection error to ${ENV.SOCKET_URL}:`,
+          error.message
+        );
       });
 
+
       this.socket.on("disconnect", (reason) => {
-        console.log(`[SocketService] Disconnected from signaling server: ${reason}`);
+        console.log(`[SocketService] Disconnected from gateway: ${reason}`);
       });
     }
 
@@ -72,9 +94,9 @@ class SocketService {
     socket.emit("room:join", { roomId, user });
   }
 
-  public leaveRoom(): void {
+  public leaveRoom(roomId?: string): void {
     if (this.socket?.connected) {
-      this.socket.emit("room:leave");
+      this.socket.emit("room:leave", { roomId });
     }
   }
 
@@ -111,9 +133,22 @@ class SocketService {
     }
   }
 
-  public sendChatMessage(roomId: string, message: ChatMessage): void {
+  public sendChatMessage(
+    roomId: string,
+    messageOrContent: ChatMessage | string,
+    type: string = "TEXT"
+  ): void {
     if (this.socket?.connected) {
-      this.socket.emit("chat:send", { roomId, message });
+      if (typeof messageOrContent === "string") {
+        this.socket.emit("chat:send", { roomId, content: messageOrContent, type });
+      } else {
+        this.socket.emit("chat:send", {
+          roomId,
+          content: messageOrContent.content,
+          type: messageOrContent.type,
+          message: messageOrContent,
+        });
+      }
     }
   }
 
@@ -130,10 +165,18 @@ class SocketService {
     roomId: string,
     messageId: string,
     emoji: string,
-    userId: string
+    userId?: string
   ): void {
     if (this.socket?.connected) {
+      this.socket.emit("chat:reaction-add", { roomId, messageId, emoji, userId });
       this.socket.emit("chat:react", { roomId, messageId, emoji, userId });
+    }
+  }
+
+
+  public kickUser(roomId: string, targetUserId: string): void {
+    if (this.socket?.connected) {
+      this.socket.emit("host:kick-user", { roomId, targetUserId });
     }
   }
 
@@ -163,7 +206,7 @@ class SocketService {
   }
 
   public async measureLatency(): Promise<number> {
-    if (!this.socket?.connected) return 24; // fallback standard mesh latency
+    if (!this.socket?.connected) return 24;
     return new Promise((resolve) => {
       const start = Date.now();
       this.socket?.emit("mesh:ping", start, () => {

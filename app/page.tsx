@@ -9,8 +9,10 @@ import { LobbyView } from "@/components/LobbyView";
 import { PageTransition } from "@/components/motion/PageTransition";
 import { Navbar } from "@/components/Navbar";
 import { ProfileModal } from "@/components/ProfileModal";
+import { AuthModal } from "@/components/AuthModal";
 import { SettingsModal } from "@/components/SettingsModal";
 import { TopicsView } from "@/components/TopicsView";
+
 import { useRoomStore, useUIStore } from "@/stores";
 import { AnimatePresence, motion } from "framer-motion";
 import { PhoneOff } from "lucide-react";
@@ -81,8 +83,10 @@ export default function Home() {
       {/* Modals driven by separated Zustand Stores & Framer Motion AnimatePresence */}
       <CreateRoomModal />
       <ProfileModal />
+      <AuthModal />
       <AudioCalibrationModal />
       <SettingsModal />
     </div>
   );
 }
+

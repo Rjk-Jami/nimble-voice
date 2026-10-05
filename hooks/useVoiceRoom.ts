@@ -4,6 +4,9 @@ import { useEffect, useState, useCallback } from "react";
 import { useRoomStore, useVoiceStore } from "@/stores";
 import { VoiceRoom } from "@/types";
 import { useWebRTC } from "./useWebRTC";
+import { apiClient } from "@/lib/axios";
+import { API_PATHS } from "@/constants";
+
 
 export function useVoiceRoom(room: VoiceRoom | null) {
   const currentRoom = useRoomStore((s) => s.currentRoom) || room;
@@ -67,10 +70,18 @@ export function useVoiceRoom(room: VoiceRoom | null) {
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   }, []);
 
-  const handleLeave = useCallback(() => {
+  const handleLeave = useCallback(async () => {
+    if (currentRoom?.id) {
+      try {
+        await apiClient.post(API_PATHS.ROOMS.LEAVE(currentRoom.id));
+      } catch (err) {
+        console.warn("Backend leave notice:", err);
+      }
+    }
     resetVoiceState();
     leaveRoom();
-  }, [resetVoiceState, leaveRoom]);
+  }, [currentRoom?.id, resetVoiceState, leaveRoom]);
+
 
   return {
     room: currentRoom,

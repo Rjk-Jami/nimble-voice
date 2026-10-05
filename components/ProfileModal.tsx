@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useAuthStore, useUIStore } from "@/stores";
+import { useUserProfileApi } from "@/hooks";
 import { User, Flame, Award, Sliders, Edit2, Check, X } from "lucide-react";
 import { LANGUAGE_FLAGS, Language } from "@/enums";
 import { MotionButton } from "./motion/MotionButton";
@@ -14,6 +15,7 @@ export function ProfileModal() {
 
   const user = useAuthStore((s) => s.user);
   const updateProfile = useAuthStore((s) => s.updateProfile);
+  const { updatePortfolio: updatePortfolioApi } = useUserProfileApi();
 
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(user?.name || "");
@@ -21,18 +23,21 @@ export function ProfileModal() {
   const [nativeLanguage, setNativeLanguage] = useState(user?.nativeLanguage || "English");
   const [learningLanguage, setLearningLanguage] = useState(user?.learningLanguage || "Spanish");
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    updateProfile({
+    const payload = {
       name: name.trim(),
       location: location.trim() || "Global",
       nativeLanguage,
       learningLanguage,
       isGuest: false,
-    });
+    };
+    updateProfile(payload);
+    await updatePortfolioApi(payload);
     setIsEditing(false);
   };
+
 
   return (
     <MotionModal

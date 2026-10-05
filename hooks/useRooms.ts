@@ -9,6 +9,9 @@ import { Language, CEFRLevel, RoomStatus } from "@/enums";
 import { CreateRoomInput } from "@/schemas";
 import { LANGUAGE_FLAGS } from "@/enums";
 import { socketService } from "@/lib/socket";
+import { apiClient } from "@/lib/axios";
+import { normalizeRoom } from "@/lib/normalize";
+
 
 export function useRooms() {
   const {
@@ -173,12 +176,30 @@ export function useRooms() {
     socketService.createRoom(newRoom);
     joinRoomInStore(newRoom, hostUser);
     mutate([newRoom, ...roomsList], false);
+
+    // Persist to backend database via Go REST API
+    try {
+      const res: any = await apiClient.post(API_PATHS.ROOMS.CREATE, input);
+      if (res?.room) {
+        const normalized = normalizeRoom(res.room);
+        newRoom.id = normalized.id;
+      }
+    } catch (err) {
+      console.warn("Backend room persistence notice:", err);
+    }
+
     return newRoom;
   };
 
-  const joinRoom = (room: VoiceRoom) => {
+  const joinRoom = async (room: VoiceRoom) => {
     joinRoomInStore(room, user);
+    try {
+      await apiClient.post(API_PATHS.ROOMS.JOIN(room.id));
+    } catch (err) {
+      console.warn("Backend room join notice:", err);
+    }
   };
+
 
   return {
     rooms: filteredRooms,

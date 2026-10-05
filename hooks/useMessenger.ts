@@ -5,6 +5,10 @@ import { useMessengerStore, useAuthStore } from "@/stores";
 import { ChatMessage } from "@/types";
 import { MessageType } from "@/enums";
 import { socketService } from "@/lib/socket";
+import { apiClient } from "@/lib/axios";
+import { API_PATHS } from "@/constants";
+import { normalizeMessage } from "@/lib/normalize";
+
 
 export function useMessenger(roomId: string, initialMessages: ChatMessage[] = []) {
   const {
@@ -54,11 +58,22 @@ export function useMessenger(roomId: string, initialMessages: ChatMessage[] = []
   useEffect(() => {
     if (initialMessages.length > 0 && messages.length === 0) {
       setMessages(initialMessages);
+    } else if (roomId && messages.length === 0) {
+      // Fetch persisted chat history from Go backend
+      apiClient
+        .get(API_PATHS.MESSAGES.LIST(roomId))
+        .then((res: any) => {
+          const rawList = res?.messages || (Array.isArray(res) ? res : []);
+          if (rawList.length > 0) {
+            setMessages(rawList.map(normalizeMessage));
+          }
+        })
+        .catch(() => {});
     }
-  }, [initialMessages, messages.length, setMessages]);
+  }, [initialMessages, messages.length, roomId, setMessages]);
 
   const handleSendText = useCallback(
-    (text: string) => {
+    async (text: string) => {
       if (!text.trim() || !user) return;
       const newMsg: ChatMessage = {
         id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -72,9 +87,20 @@ export function useMessenger(roomId: string, initialMessages: ChatMessage[] = []
 
       addMessage(newMsg);
       socketService.sendChatMessage(roomId, newMsg);
+
+      // Asynchronously persist to Go backend database
+      try {
+        await apiClient.post(API_PATHS.MESSAGES.SEND(roomId), {
+          content: text.trim(),
+          type: "TEXT",
+        });
+      } catch (err) {
+        console.warn("Backend chat persistence notice:", err);
+      }
     },
     [roomId, user, addMessage]
   );
+
 
   const handleSendReaction = useCallback(
     (emoji: string) => {

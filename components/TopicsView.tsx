@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { TOPIC_PROMPTS } from "@/lib/data";
 import { useUIStore } from "@/stores";
+import { useTopicPromptsApi } from "@/hooks";
 import { Lightbulb, Shuffle, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
 import { MotionButton } from "./motion/MotionButton";
@@ -10,24 +11,28 @@ import { TabGlider } from "./motion/TabGlider";
 import { StaggerContainer, StaggerItem } from "./motion/StaggerList";
 import { MotionCard } from "./motion/MotionCard";
 
-
 export function TopicsView() {
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [customPrompt, setCustomPrompt] = useState<string>("");
   const openCreateModal = useUIStore((s) => s.openCreateModal);
 
-  const categories = ["All", ...TOPIC_PROMPTS.map((c) => c.category)];
+  const { decks, isLoading } = useTopicPromptsApi();
+  const activeDecks = decks && decks.length > 0 ? decks : TOPIC_PROMPTS;
+
+  const categories = ["All", ...activeDecks.map((c) => c.category)];
 
   const displayedTopics =
     selectedCategory === "All"
-      ? TOPIC_PROMPTS
-      : TOPIC_PROMPTS.filter((c) => c.category === selectedCategory);
+      ? activeDecks
+      : activeDecks.filter((c) => c.category === selectedCategory);
 
   const handlePickRandom = () => {
-    const allPrompts = TOPIC_PROMPTS.flatMap((c) => c.prompts);
+    const allPrompts = activeDecks.flatMap((c) => c.prompts);
+    if (allPrompts.length === 0) return;
     const random = allPrompts[Math.floor(Math.random() * allPrompts.length)];
     openCreateModal(random.title);
   };
+
 
   return (
     <div className="w-full px-4 sm:px-6 py-8 max-w-[1400px] mx-auto flex flex-col gap-6 animate-fade-in">

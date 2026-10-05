@@ -7,6 +7,8 @@ interface UIState {
   isProfileOpen: boolean;
   isCalibrationOpen: boolean;
   isSettingsOpen: boolean;
+  isAuthOpen: boolean;
+  authMode: "login" | "register";
 
   setActiveTab: (tab: string) => void;
   openCreateModal: (initialTopic?: string) => void;
@@ -14,6 +16,8 @@ interface UIState {
   setProfileOpen: (open: boolean) => void;
   setCalibrationOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
+  openAuthModal: (mode?: "login" | "register") => void;
+  closeAuthModal: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -23,6 +27,8 @@ export const useUIStore = create<UIState>((set) => ({
   isProfileOpen: false,
   isCalibrationOpen: false,
   isSettingsOpen: false,
+  isAuthOpen: false,
+  authMode: "login",
 
   setActiveTab: (activeTab) => set({ activeTab }),
   openCreateModal: (createInitialTopic = "") =>
@@ -31,4 +37,6 @@ export const useUIStore = create<UIState>((set) => ({
   setProfileOpen: (isProfileOpen) => set({ isProfileOpen }),
   setCalibrationOpen: (isCalibrationOpen) => set({ isCalibrationOpen }),
   setSettingsOpen: (isSettingsOpen) => set({ isSettingsOpen }),
+  openAuthModal: (mode = "login") => set({ isAuthOpen: true, authMode: mode }),
+  closeAuthModal: () => set({ isAuthOpen: false }),
 }));

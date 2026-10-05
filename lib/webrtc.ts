@@ -223,6 +223,14 @@ export class WebRTCMeshManager {
       }
     });
 
+    // 1b. New peer arrived in room (Go backend event)
+    socket.off("room:user-joined");
+    socket.on("room:user-joined", async ({ socketId, userId, user }: { socketId: string; userId: string; user: any }) => {
+      console.log(`[WebRTC] New peer joined room (${socketId}, ${userId}), initiating offer...`);
+      await this.createOfferToPeer(socketId, userId);
+    });
+
+
     // 2. Incoming SDP Offer
     socket.off("webrtc:offer");
     socket.on("webrtc:offer", async ({ senderSocketId, userId, sdp }: { senderSocketId: string; userId: string; sdp: RTCSessionDescriptionInit }) => {

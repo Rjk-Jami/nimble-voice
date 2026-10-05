@@ -137,8 +137,19 @@ export function Navbar() {
             <TacticalEqualizer isActive={!isMuted && isSpeaking} barCount={4} size="sm" />
           </motion.button>
 
-          {/* User Profile Avatar */}
-          <div className="relative flex items-center">
+          {/* User Profile Avatar or Sign In */}
+          <div className="relative flex items-center gap-2">
+            {(!user || user.isGuest) && (
+              <motion.button
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.96 }}
+                onClick={() => useUIStore.getState().openAuthModal("login")}
+                className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-[#22c55e] hover:text-[#4be277] bg-[#22c55e]/10 hover:bg-[#22c55e]/20 border border-[#22c55e]/30 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+              >
+                <span>Sign In</span>
+              </motion.button>
+            )}
+
             <motion.button
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.94 }}
@@ -159,6 +170,7 @@ export function Navbar() {
               <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#22c55e] ring-2 ring-[#161c23]"></span>
             </motion.button>
           </div>
+
 
           {/* General Settings Button */}
           <motion.button
