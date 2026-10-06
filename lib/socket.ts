@@ -1,7 +1,7 @@
 "use client";
 
 import { io, Socket } from "socket.io-client";
-import { User, ChatMessage, VoiceRoom } from "@/types";
+import { User, ChatMessage } from "@/types";
 import {
   SignalingOfferPayload,
   SignalingAnswerPayload,
@@ -178,31 +178,6 @@ class SocketService {
     if (this.socket?.connected) {
       this.socket.emit("host:kick-user", { roomId, targetUserId });
     }
-  }
-
-  public createRoom(room: VoiceRoom): void {
-    const socket = this.connect();
-    socket.emit("room:create", { room });
-  }
-
-  public async fetchRooms(): Promise<VoiceRoom[]> {
-    const socket = this.connect();
-    return new Promise((resolve) => {
-      socket.emit("rooms:get", (rooms: VoiceRoom[]) => {
-        resolve(rooms || []);
-      });
-      setTimeout(() => resolve([]), 1500);
-    });
-  }
-
-  public async fetchStats(): Promise<{ onlineCount: number; activeRoomsCount: number; liveLanguagesCount: number } | null> {
-    const socket = this.connect();
-    return new Promise((resolve) => {
-      socket.emit("stats:get", (stats: any) => {
-        resolve(stats || null);
-      });
-      setTimeout(() => resolve(null), 1500);
-    });
   }
 
   public async measureLatency(): Promise<number> {

@@ -4,7 +4,6 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "signaling": "node server/signaling-server.js",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

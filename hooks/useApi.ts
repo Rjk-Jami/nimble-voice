@@ -198,9 +198,9 @@ export function useNetworkStatsApi() {
 
   return {
     stats: fetchResult.singleData || {
-      onlineCount: 1420,
-      activeRoomsCount: 68,
-      liveLanguagesCount: 14,
+      onlineCount: 0,
+      activeRoomsCount: 0,
+      liveLanguagesCount: 0,
     },
     isLoading: fetchResult.isLoading,
     refreshStats: fetchResult.mutate,

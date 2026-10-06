@@ -67,6 +67,35 @@ export const useAuthStore = create<AuthState>((set) => ({
       };
       sessionStorage.setItem("nimble_voice_guest", JSON.stringify(guestUser));
       set({ user: guestUser, isAuthenticated: false, isGuest: true });
+
+      // Automatically register guest token with Go backend if no token exists
+      const existingToken =
+        localStorage.getItem("token") ||
+        localStorage.getItem("nimble_auth_token");
+      if (!existingToken) {
+        import("@/lib/axios").then(({ apiClient }) => {
+          import("@/constants/apiPaths").then(({ API_PATHS }) => {
+            apiClient
+              .post(API_PATHS.AUTH.GUEST_LOGIN, { name: guestUser.name })
+              .then((res: any) => {
+                if (res?.token) {
+                  localStorage.setItem("token", res.token);
+                  localStorage.setItem("nimble_auth_token", res.token);
+                }
+                if (res?.user) {
+                  import("@/lib/normalize").then(({ normalizeUser }) => {
+                    set({
+                      user: normalizeUser(res.user),
+                      isAuthenticated: false,
+                      isGuest: true,
+                    });
+                  });
+                }
+              })
+              .catch(() => {});
+          });
+        });
+      }
     } catch {}
   },
 

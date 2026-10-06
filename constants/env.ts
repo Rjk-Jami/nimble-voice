@@ -6,19 +6,20 @@
 export const ENV = {
   /**
    * HTTP REST API Base URL
-   * Default: http://localhost:8080/api (Go Gin Backend)
+   * Default: http://localhost:8080 (Go Gin Backend)
    */
   API_URL:
-    process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api",
+    (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080").replace(
+      /\/api\/?$/,
+      ""
+    ),
 
   /**
    * Real-Time Socket.IO Gateway Host
    * Default: http://localhost:8080 (Go Socket Gateway)
    */
   SOCKET_URL:
-    process.env.NEXT_PUBLIC_SOCKET_URL ||
-    process.env.NEXT_PUBLIC_SIGNALING_URL ||
-    "http://localhost:8080",
+    process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:8080",
 
   /**
    * Socket.IO Gateway Path
