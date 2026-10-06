@@ -187,9 +187,21 @@ class SocketService {
   }
 
 
+  public muteUser(roomId: string, targetUserId: string): void {
+    if (this.socket?.connected) {
+      this.socket.emit("host:mute-user", { roomId, targetUserId });
+    }
+  }
+
   public kickUser(roomId: string, targetUserId: string): void {
     if (this.socket?.connected) {
       this.socket.emit("host:kick-user", { roomId, targetUserId });
+    }
+  }
+
+  public lockRoom(roomId: string, isLocked: boolean): void {
+    if (this.socket?.connected) {
+      this.socket.emit("host:lock-room", { roomId, isLocked });
     }
   }
 

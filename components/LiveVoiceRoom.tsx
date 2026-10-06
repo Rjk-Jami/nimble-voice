@@ -22,6 +22,9 @@ import {
   Paperclip,
   X,
   Loader2,
+  Lock,
+  ShieldCheck,
+  UserX,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FloatingReactionItem, FloatingReactions } from "./motion/FloatingReaction";
@@ -123,9 +126,47 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
   const screenVideoRef = useRef<HTMLVideoElement>(null);
   const remoteScreenVideoRef = useRef<HTMLVideoElement>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+  const isHost = Boolean(user?.id && (currentRoom?.host?.id === user.id || room.host?.id === user.id));
+  const [isLocked, setIsLocked] = useState(Boolean(currentRoom?.hasFreeSeats === false));
 
   // Hook into real WebRTC microphone stream for speaking detection
   const { isSpeaking } = useSpeakingDetection(localStream);
+
+  // Sync real-time host moderation events
+  useEffect(() => {
+    const socket = socketService.getSocket();
+    const roomId = currentRoom?.id || room.id;
+
+    const handleForceMuted = (data: any) => {
+      if (data?.roomId === roomId) {
+        if (!isMuted) toggleMute();
+        alert(data?.reason || "You were muted by the room host.");
+      }
+    };
+
+    const handleKicked = (data: any) => {
+      if (data?.roomId === roomId) {
+        alert(data?.reason || "You were removed from this room by the host.");
+        leaveRoom();
+      }
+    };
+
+    const handleLockChanged = (data: any) => {
+      if (data?.roomId === roomId) {
+        setIsLocked(Boolean(data.isLocked));
+      }
+    };
+
+    socket.on("room:force-muted", handleForceMuted);
+    socket.on("room:kicked", handleKicked);
+    socket.on("room:lock-changed", handleLockChanged);
+
+    return () => {
+      socket.off("room:force-muted", handleForceMuted);
+      socket.off("room:kicked", handleKicked);
+      socket.off("room:lock-changed", handleLockChanged);
+    };
+  }, [currentRoom?.id, room.id, isMuted, toggleMute, leaveRoom]);
 
   // Sync real-time floating reactions from peers
   useEffect(() => {
@@ -483,6 +524,34 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
             </motion.div>
           )}
 
+          {/* Host Moderation Controls Bar */}
+          {isHost && (
+            <div className="w-full bg-[#161c23] border border-[#22c55e]/30 rounded-xl p-2.5 sm:p-3 flex items-center justify-between gap-3 shadow-md">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-[#22c55e]" />
+                <span className="text-xs font-bold text-[#dde3ed]">Host Controls</span>
+                <span className="text-[11px] text-[#94a3b8] hidden sm:inline">• Manage conversation flow and participant access</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const nextLocked = !isLocked;
+                    setIsLocked(nextLocked);
+                    socketService.lockRoom(currentRoom?.id || room.id, nextLocked);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                    isLocked
+                      ? "bg-[#ef4444]/20 border-[#ef4444] text-[#ef4444]"
+                      : "bg-[#242a32] border-[#2a3340] text-[#94a3b8] hover:text-[#dde3ed]"
+                  }`}
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>{isLocked ? "Room Locked" : "Lock Room"}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Compact Participants Matrix */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3.5 w-full">
             {participantsList.map((p) => {
@@ -523,6 +592,33 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
                         <span className="px-1.5 py-0.5 rounded-md bg-[#22c55e]/20 text-[#22c55e] font-bold text-[10px] border border-[#22c55e]/30">
                           YOU
                         </span>
+                      )}
+                      {/* Host Moderation Quick Buttons */}
+                      {isHost && !isCurrentUser && !p.isHost && (
+                        <div className="flex items-center gap-1 ml-1.5">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              socketService.muteUser(currentRoom?.id || room.id, p.id);
+                            }}
+                            title="Mute Participant"
+                            className="p-1 rounded bg-[#242a32] hover:bg-[#ef4444]/20 text-[#94a3b8] hover:text-[#ef4444] transition-colors border border-[#2a3340]"
+                          >
+                            <MicOff className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm(`Kick ${p.name} from the room?`)) {
+                                socketService.kickUser(currentRoom?.id || room.id, p.id);
+                              }
+                            }}
+                            title="Kick Participant"
+                            className="p-1 rounded bg-[#242a32] hover:bg-[#ef4444]/20 text-[#94a3b8] hover:text-[#ef4444] transition-colors border border-[#2a3340]"
+                          >
+                            <UserX className="w-3 h-3" />
+                          </button>
+                        </div>
                       )}
                     </div>
 
