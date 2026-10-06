@@ -89,6 +89,16 @@ class SocketService {
     return !!this.socket?.connected;
   }
 
+  public getSocketId(): string | undefined {
+    return this.socket?.id;
+  }
+
+  public sendScreenShare(roomId: string, isSharing: boolean): void {
+    if (this.socket?.connected) {
+      this.socket.emit("room:screen-share", { roomId, isSharing });
+    }
+  }
+
   public joinLobby(): void {
     const socket = this.connect();
     socket.emit("lobby:join");

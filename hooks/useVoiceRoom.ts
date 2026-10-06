@@ -35,6 +35,7 @@ export function useVoiceRoom(room: VoiceRoom | null) {
     toggleMute,
     toggleDeafen,
     toggleScreenShare,
+    setScreenSharing,
     toggleHandRaised,
     resetVoiceState,
   } = useVoiceStore();
@@ -98,6 +99,7 @@ export function useVoiceRoom(room: VoiceRoom | null) {
     toggleMute,
     toggleDeafen,
     toggleScreenShare,
+    setScreenSharing,
     toggleHandRaised,
     localStream,
     remotePeers,

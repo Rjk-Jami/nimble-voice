@@ -81,6 +81,7 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
     toggleMute,
     toggleDeafen,
     toggleScreenShare,
+    setScreenSharing,
     toggleHandRaised,
     shareScreen,
     leaveRoom,
@@ -211,7 +212,7 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
       screenStream.getTracks().forEach((t) => t.stop());
       setScreenStream(null);
       await shareScreen(null);
-      toggleScreenShare();
+      setScreenSharing(false);
     } else {
       try {
         const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -220,12 +221,12 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
         });
         setScreenStream(stream);
         await shareScreen(stream);
-        toggleScreenShare();
+        setScreenSharing(true);
 
         stream.getVideoTracks()[0].onended = async () => {
           setScreenStream(null);
           await shareScreen(null);
-          toggleScreenShare();
+          setScreenSharing(false);
         };
       } catch {
         // User cancelled picker

@@ -33,6 +33,11 @@ export class WebRTCMeshManager {
 
   private screenStream: MediaStream | null = null;
 
+  // Perfect Negotiation State Tracking
+  private makingOffer: Map<string, boolean> = new Map();
+  private pendingRenegotiation: Map<string, boolean> = new Map();
+  private lastIceRestartTime: Map<string, number> = new Map();
+
   // Callbacks
   public onRemoteStream?: (peer: RemotePeerMedia) => void;
   public onRemoteScreenStream?: (data: { socketId: string; userId: string; stream: MediaStream | null }) => void;
@@ -40,6 +45,18 @@ export class WebRTCMeshManager {
   public onConnectionStateChange?: (socketId: string, state: RTCPeerConnectionState) => void;
 
   constructor() {}
+
+  /**
+   * Determine W3C Perfect Negotiation politeness deterministically
+   */
+  private isPolite(peerUserId: string, peerSocketId: string): boolean {
+    const myId = this.currentUser?.id || "";
+    if (myId && peerUserId && myId !== peerUserId) {
+      return myId.localeCompare(peerUserId) > 0;
+    }
+    const mySocketId = socketService.getSocketId() || "";
+    return mySocketId.localeCompare(peerSocketId) > 0;
+  }
 
   /**
    * Initialize local audio media stream from microphone
@@ -171,6 +188,10 @@ export class WebRTCMeshManager {
         console.warn(`[WebRTC] Failed to update screen share track for peer ${socketId}:`, err);
       }
     }
+
+    if (this.roomId) {
+      socketService.sendScreenShare(this.roomId, !!stream);
+    }
   }
 
   /**
@@ -230,7 +251,6 @@ export class WebRTCMeshManager {
       await this.createOfferToPeer(socketId, userId);
     });
 
-
     // 2. Incoming SDP Offer
     socket.off("webrtc:offer");
     socket.on("webrtc:offer", async ({ senderSocketId, userId, sdp }: { senderSocketId: string; userId: string; sdp: RTCSessionDescriptionInit }) => {
@@ -257,6 +277,31 @@ export class WebRTCMeshManager {
       console.log(`[WebRTC] Peer ${socketId} left room`);
       this.closePeer(socketId, userId);
     });
+  }
+
+  /**
+   * Handle automatic ICE restart when connection drops or fails
+   */
+  private async handleIceFailure(targetSocketId: string, userId: string): Promise<void> {
+    const now = Date.now();
+    const lastRestart = this.lastIceRestartTime.get(targetSocketId) || 0;
+    if (now - lastRestart < 6000) {
+      return; // Debounce restarts to at most once per 6 seconds
+    }
+    this.lastIceRestartTime.set(targetSocketId, now);
+
+    const pc = this.peers.get(targetSocketId);
+    if (!pc || pc.signalingState === "closed") return;
+
+    console.log(`[WebRTC] Peer ${targetSocketId} connection failed. Triggering automatic ICE restart...`);
+    try {
+      if (typeof pc.restartIce === "function") {
+        pc.restartIce();
+      }
+      await this.createOfferToPeer(targetSocketId, userId, true);
+    } catch (err) {
+      console.warn(`[WebRTC] ICE restart failed for ${targetSocketId}:`, err);
+    }
   }
 
   /**
@@ -297,6 +342,17 @@ export class WebRTCMeshManager {
     pc.onconnectionstatechange = () => {
       console.log(`[WebRTC] Peer ${targetSocketId} connection state: ${pc?.connectionState}`);
       this.onConnectionStateChange?.(targetSocketId, pc!.connectionState);
+      if (pc?.connectionState === "failed") {
+        this.handleIceFailure(targetSocketId, userId);
+      }
+    };
+
+    // ICE Connection State Change
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[WebRTC] Peer ${targetSocketId} ICE state: ${pc?.iceConnectionState}`);
+      if (pc?.iceConnectionState === "failed") {
+        this.handleIceFailure(targetSocketId, userId);
+      }
     };
 
     // Incoming Remote Stream Track
@@ -346,23 +402,27 @@ export class WebRTCMeshManager {
   }
 
   /**
-   * Initiate WebRTC SDP offer to target peer
+   * Initiate WebRTC SDP offer to target peer using Perfect Negotiation
    */
-  public async createOfferToPeer(targetSocketId: string, userId: string): Promise<void> {
+  public async createOfferToPeer(targetSocketId: string, userId: string, isRestartIce = false): Promise<void> {
     try {
       const pc = this.getOrCreatePeerConnection(targetSocketId, userId);
 
       // WebRTC: Only create offer if in stable state
       if (pc.signalingState !== "stable") {
         console.warn(
-          `[WebRTC] Cannot create offer to ${targetSocketId}: connection state is '${pc.signalingState}', not 'stable'`
+          `[WebRTC] Deferring offer to ${targetSocketId}: connection state is '${pc.signalingState}', not 'stable'`
         );
+        this.pendingRenegotiation.set(targetSocketId, true);
         return;
       }
+
+      this.makingOffer.set(targetSocketId, true);
 
       const offer = await pc.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: true,
+        iceRestart: isRestartIce,
       });
 
       if (pc.signalingState !== "stable") {
@@ -373,36 +433,41 @@ export class WebRTCMeshManager {
 
       socketService.sendOffer({
         targetSocketId,
-        sdp: offer,
+        sdp: pc.localDescription || offer,
         user: this.currentUser as any,
       });
     } catch (err) {
       console.error(`[WebRTC] Failed to create offer to ${targetSocketId}:`, err);
+    } finally {
+      this.makingOffer.set(targetSocketId, false);
     }
   }
 
   /**
-   * Handle incoming WebRTC SDP offer
+   * Handle incoming WebRTC SDP offer with W3C Perfect Negotiation glare handling
    */
   public async handleOffer(senderSocketId: string, userId: string, sdp: RTCSessionDescriptionInit): Promise<void> {
     try {
       const pc = this.getOrCreatePeerConnection(senderSocketId, userId);
+      const isPolite = this.isPolite(userId, senderSocketId);
+      const isMakingOffer = !!this.makingOffer.get(senderSocketId);
 
-      // WebRTC Glare / Collision Handling:
-      // If we are in have-local-offer (both peers created an offer simultaneously),
-      // roll back our local offer to accept the remote offer cleanly.
-      if (pc.signalingState !== "stable") {
-        console.warn(`[WebRTC] Glare detected with ${senderSocketId}. State: '${pc.signalingState}'. Rolling back local description.`);
+      // Glare / collision check
+      const offerCollision = sdp.type === "offer" && (isMakingOffer || pc.signalingState !== "stable");
+      const shouldIgnore = !isPolite && offerCollision;
+
+      if (shouldIgnore) {
+        console.log(`[WebRTC] Glare detected with ${senderSocketId}. Impolite peer ignoring colliding offer.`);
+        return;
+      }
+
+      if (offerCollision) {
+        console.log(`[WebRTC] Glare detected with ${senderSocketId}. Polite peer rolling back local description.`);
         try {
           await pc.setLocalDescription({ type: "rollback" });
         } catch (rollbackErr) {
           console.warn("[WebRTC] Rollback error:", rollbackErr);
         }
-      }
-
-      if (pc.signalingState !== "stable") {
-        console.warn(`[WebRTC] Cannot set remote offer from ${senderSocketId}: state is '${pc.signalingState}'`);
-        return;
       }
 
       await pc.setRemoteDescription(new RTCSessionDescription(sdp));
@@ -431,7 +496,6 @@ export class WebRTCMeshManager {
       if (!pc) return;
 
       // WebRTC Spec: An answer can ONLY be set when connection is in "have-local-offer" state.
-      // If it is already in "stable", the answer was already processed or superseded.
       if (pc.signalingState !== "have-local-offer") {
         console.warn(
           `[WebRTC] Ignoring SDP answer from ${senderSocketId}: connection state is '${pc.signalingState}', not 'have-local-offer'`
@@ -441,17 +505,23 @@ export class WebRTCMeshManager {
 
       await pc.setRemoteDescription(new RTCSessionDescription(sdp));
       await this.flushQueuedCandidates(senderSocketId, pc);
+
+      // If pending renegotiation was queued while in non-stable state, trigger now
+      if (this.pendingRenegotiation.get(senderSocketId)) {
+        this.pendingRenegotiation.delete(senderSocketId);
+        await this.createOfferToPeer(senderSocketId, "");
+      }
     } catch (err) {
       console.error(`[WebRTC] Failed to handle answer from ${senderSocketId}:`, err);
     }
   }
 
   /**
-   * Handle incoming trickle ICE candidate
+   * Handle incoming trickle ICE candidate with resilient queueing
    */
   public async handleIceCandidate(senderSocketId: string, candidate: RTCIceCandidateInit): Promise<void> {
     const pc = this.peers.get(senderSocketId);
-    if (!pc || !pc.remoteDescription) {
+    if (!pc || !pc.remoteDescription || pc.signalingState === "closed") {
       // Queue candidate until remote description is set
       const queue = this.queuedCandidates.get(senderSocketId) || [];
       queue.push(candidate);
@@ -461,14 +531,17 @@ export class WebRTCMeshManager {
 
     try {
       await pc.addIceCandidate(new RTCIceCandidate(candidate));
-    } catch (err) {
-      console.warn(`[WebRTC] Could not add ICE candidate from ${senderSocketId}:`, err);
+    } catch (err: any) {
+      if (!err?.message?.includes("closed")) {
+        console.warn(`[WebRTC] Could not add ICE candidate from ${senderSocketId}:`, err?.message);
+      }
     }
   }
 
   private async flushQueuedCandidates(senderSocketId: string, pc: RTCPeerConnection): Promise<void> {
     const queued = this.queuedCandidates.get(senderSocketId);
     if (!queued || queued.length === 0) return;
+    this.queuedCandidates.delete(senderSocketId);
 
     for (const cand of queued) {
       try {
@@ -477,7 +550,6 @@ export class WebRTCMeshManager {
         console.warn(`[WebRTC] Could not add flushed ICE candidate:`, err);
       }
     }
-    this.queuedCandidates.delete(senderSocketId);
   }
 
   /**
@@ -502,6 +574,9 @@ export class WebRTCMeshManager {
 
     this.peerStreams.delete(socketId);
     this.queuedCandidates.delete(socketId);
+    this.makingOffer.delete(socketId);
+    this.pendingRenegotiation.delete(socketId);
+    this.lastIceRestartTime.delete(socketId);
 
     if (userId) {
       this.onPeerDisconnected?.(socketId, userId);
@@ -527,6 +602,7 @@ export class WebRTCMeshManager {
       pc.onicecandidate = null;
       pc.ontrack = null;
       pc.onconnectionstatechange = null;
+      pc.oniceconnectionstatechange = null;
       pc.close();
     });
     this.peers.clear();
@@ -556,6 +632,9 @@ export class WebRTCMeshManager {
     });
     this.peerStreams.clear();
     this.queuedCandidates.clear();
+    this.makingOffer.clear();
+    this.pendingRenegotiation.clear();
+    this.lastIceRestartTime.clear();
 
     // 4. Clear callbacks
     this.onRemoteStream = undefined;
