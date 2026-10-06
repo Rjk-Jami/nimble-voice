@@ -19,19 +19,23 @@ import {
   Smile,
   Copy,
   Check,
+  Paperclip,
+  X,
+  Loader2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FloatingReactionItem, FloatingReactions } from "./motion/FloatingReaction";
 import { MotionButton } from "./motion/MotionButton";
 import { TacticalEqualizer } from "./motion/TacticalEqualizer";
 import { SpeakingRipple } from "./motion/SpeakingRipple";
+import { ImageLightbox } from "./ImageLightbox";
 import { socketService } from "@/lib/socket";
 
 interface LiveVoiceRoomProps {
   room: VoiceRoom;
 }
 
-const AVAILABLE_REACTIONS = ["👍", "❤️", "😂", "👏", "🔥"] as const;
+const AVAILABLE_REACTIONS = ["👍", "❤️", "😂", "👏", "🔥", "💡", "🎉"] as const;
 
 function getReactionCounts(reactions?: Record<string, string[]> | string[]): {
   emoji: string;
@@ -79,7 +83,7 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
     leaveRoom,
   } = useVoiceRoom(room);
 
-  const { messages, sendMessage, sendReaction, reactToMessage } = useMessenger(
+  const { messages, sendMessage, uploadAttachment, sendReaction, reactToMessage } = useMessenger(
     currentRoom?.id || room.id,
     currentRoom?.messages || room.messages
   );
@@ -101,10 +105,15 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
     };
   }, []);
 
-  // Messenger local input
+  // Messenger local input & media state
   const [inputText, setInputText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [activeMessagePicker, setActiveMessagePicker] = useState<string | null>(null);
+  const [activeLightboxImage, setActiveLightboxImage] = useState<string | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingFilePreview, setPendingFilePreview] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Floating live emoji reactions
   const [floatingReactions, setFloatingReactions] = useState<FloatingReactionItem[]>([]);
@@ -191,11 +200,58 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
     }
   };
 
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputText.trim()) return;
-    sendMessage(inputText);
-    setInputText("");
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("Please select an image file (PNG, JPEG, WebP, GIF)");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      alert("File size exceeds 10MB limit");
+      return;
+    }
+    setPendingFile(file);
+    const objectUrl = URL.createObjectURL(file);
+    setPendingFilePreview(objectUrl);
+  };
+
+  const handleClearPendingFile = () => {
+    if (pendingFilePreview) {
+      URL.revokeObjectURL(pendingFilePreview);
+    }
+    setPendingFile(null);
+    setPendingFilePreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleSendMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!inputText.trim() && !pendingFile) return;
+
+    if (pendingFile) {
+      setIsUploading(true);
+      try {
+        const uploaded = await uploadAttachment(pendingFile);
+        if (uploaded?.url) {
+          await sendMessage(inputText, {
+            url: uploaded.url,
+            type: uploaded.contentType || pendingFile.type || "image/png",
+          });
+          setInputText("");
+          handleClearPendingFile();
+        }
+      } catch (err) {
+        console.error("Failed to send message with attachment:", err);
+      } finally {
+        setIsUploading(false);
+      }
+    } else {
+      sendMessage(inputText);
+      setInputText("");
+    }
   };
 
   const handleTriggerReaction = (emoji: string) => {
@@ -668,10 +724,10 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
                   return (
                     <motion.div
                       key={msg.id}
-                      initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                      initial={{ opacity: 0, y: 8, scale: 0.98 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       transition={{ type: "spring", stiffness: 450, damping: 25 }}
-                      className={`group/msg relative p-2.5 rounded-xl flex flex-col gap-1 text-xs border ${
+                      className={`group/msg relative p-2.5 rounded-xl flex gap-2.5 text-xs border transition-colors ${
                         msg.isHighlighted
                           ? "bg-[#22c55e]/10 border-[#22c55e]/40 text-[#dde3ed]"
                           : isSenderHost
@@ -679,26 +735,60 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
                           : "bg-[#1a2027]/70 border-[#2a3340]/60 text-[#dde3ed]"
                       }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <span
-                            className={`font-bold ${
-                              isSenderHost ? "text-[#22c55e]" : "text-[#c0c7d4]"
-                            }`}
-                          >
-                            {msg.sender.name}
-                          </span>
-                          {isSenderHost && (
-                            <span className="text-[8px] uppercase px-1 py-0.2 rounded bg-[#242a32] text-[#22c55e] border border-[#2a3340]">
-                              Host
+                      {/* Avatar */}
+                      <div className="shrink-0 pt-0.5">
+                        {msg.sender?.avatarUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={msg.sender.avatarUrl}
+                            alt={msg.sender.name || "User"}
+                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover border border-[#2a3340]"
+                          />
+                        ) : (
+                          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#242a32] border border-[#2a3340] flex items-center justify-center font-bold text-xs text-[#22c55e]">
+                            {msg.sender?.name ? msg.sender.name.charAt(0).toUpperCase() : "?"}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Message Content Body */}
+                      <div className="flex-1 min-w-0 flex flex-col gap-1">
+                        {/* Header */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span
+                              className={`font-semibold text-xs truncate ${
+                                isSenderHost ? "text-[#22c55e]" : "text-[#dde3ed]"
+                              }`}
+                            >
+                              {msg.sender?.name || "Learner"}
                             </span>
-                          )}
+                            {isSenderHost && (
+                              <span className="text-[8px] uppercase px-1 py-0.2 rounded bg-[#242a32] text-[#22c55e] border border-[#2a3340] font-bold shrink-0">
+                                Host
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-[9px] text-[#94a3b8] font-mono">
+                              {msg.createdAt}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <span className="text-[9px] text-[#94a3b8] font-mono">
-                            {msg.createdAt}
-                          </span>
-                          {/* Reaction Trigger Button (visible on hover) */}
+
+                        {/* Hover Quick Reaction Toolbar (Discord-style) */}
+                        <div className="absolute right-2 -top-2.5 hidden group-hover/msg:flex items-center gap-0.5 px-1 py-0.5 rounded-lg bg-[#12171e] border border-[#2a3340] shadow-xl z-20">
+                          {AVAILABLE_REACTIONS.slice(0, 5).map((emoji) => (
+                            <button
+                              key={emoji}
+                              type="button"
+                              onClick={() => reactToMessage(msg.id, emoji)}
+                              className="w-5 h-5 flex items-center justify-center rounded hover:bg-[#242a32] text-xs transition-transform hover:scale-125 cursor-pointer"
+                              title={`React with ${emoji}`}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
                           <button
                             type="button"
                             onClick={() =>
@@ -706,65 +796,82 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
                                 activeMessagePicker === msg.id ? null : msg.id
                               )
                             }
-                            className="opacity-0 group-hover/msg:opacity-100 p-0.5 rounded hover:bg-[#242a32] text-[#94a3b8] hover:text-[#22c55e] transition-opacity cursor-pointer"
-                            title="React to this message"
+                            className="p-0.5 rounded hover:bg-[#242a32] text-[#94a3b8] hover:text-[#22c55e] transition-colors cursor-pointer"
+                            title="More reactions"
                           >
                             <Smile className="w-3.5 h-3.5" />
                           </button>
                         </div>
-                      </div>
 
-                      <p className="text-xs leading-relaxed break-words font-sans">
-                        {msg.content}
-                      </p>
+                        {/* Text Message */}
+                        {msg.content && (
+                          <p className="text-xs leading-relaxed break-words font-sans text-[#c0c7d4] whitespace-pre-wrap">
+                            {msg.content}
+                          </p>
+                        )}
 
-                      {/* Floating Emoji Picker Popover for Individual Message */}
-                      {activeMessagePicker === msg.id && (
-                        <div className="flex items-center gap-1 bg-[#12171e] p-1 rounded-lg border border-[#2a3340] shadow-xl mt-1 w-fit z-30">
-                          {AVAILABLE_REACTIONS.map((emoji) => (
-                            <button
-                              key={emoji}
-                              type="button"
-                              onClick={() => {
-                                reactToMessage(msg.id, emoji);
-                                setActiveMessagePicker(null);
-                              }}
-                              className="w-6 h-6 flex items-center justify-center rounded hover:bg-[#242a32] text-sm cursor-pointer"
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                        {/* Inline Image Attachment Thumbnail */}
+                        {msg.mediaUrl && (
+                          <div className="mt-1">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={msg.mediaUrl}
+                              alt="Attachment preview"
+                              onClick={() => setActiveLightboxImage(msg.mediaUrl!)}
+                              className="max-h-56 max-w-full rounded-xl object-cover cursor-pointer border border-[#2a3340] hover:border-[#22c55e] transition-all shadow-md hover:scale-[1.01]"
+                            />
+                          </div>
+                        )}
 
-                      {/* Display Active Reaction Chips (one per user enforced) */}
-                      {reactionData.length > 0 && (
-                        <div className="flex items-center gap-1 flex-wrap pt-1 mt-0.5">
-                          {reactionData.map((r) => {
-                            const isUserReacted = r.users.includes(user?.id || "");
-                            return (
+                        {/* Floating Emoji Picker Popover */}
+                        {activeMessagePicker === msg.id && (
+                          <div className="flex items-center gap-1 bg-[#12171e] p-1.5 rounded-lg border border-[#2a3340] shadow-xl mt-1 w-fit z-30">
+                            {AVAILABLE_REACTIONS.map((emoji) => (
                               <button
-                                key={r.emoji}
+                                key={emoji}
                                 type="button"
-                                onClick={() => reactToMessage(msg.id, r.emoji)}
-                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border transition-all cursor-pointer ${
-                                  isUserReacted
-                                    ? "bg-[#22c55e]/20 border-[#22c55e] text-[#22c55e] shadow-sm"
-                                    : "bg-[#242a32] border-[#2a3340] text-[#dde3ed] hover:border-[#94a3b8]/50"
-                                }`}
-                                title={
-                                  isUserReacted
-                                    ? "Click to remove your reaction"
-                                    : "Click to react with this emoji"
-                                }
+                                onClick={() => {
+                                  reactToMessage(msg.id, emoji);
+                                  setActiveMessagePicker(null);
+                                }}
+                                className="w-6 h-6 flex items-center justify-center rounded hover:bg-[#242a32] text-sm hover:scale-125 transition-transform cursor-pointer"
+                                title={`React with ${emoji}`}
                               >
-                                <span>{r.emoji}</span>
-                                <span>{r.count}</span>
+                                {emoji}
                               </button>
-                            );
-                          })}
-                        </div>
-                      )}
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Display Active Reaction Pill Badges */}
+                        {reactionData.length > 0 && (
+                          <div className="flex items-center gap-1.5 flex-wrap pt-0.5 mt-0.5">
+                            {reactionData.map((r) => {
+                              const isUserReacted = r.users.includes(user?.id || "");
+                              return (
+                                <button
+                                  key={r.emoji}
+                                  type="button"
+                                  onClick={() => reactToMessage(msg.id, r.emoji)}
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border transition-all cursor-pointer ${
+                                    isUserReacted
+                                      ? "bg-[#22c55e]/20 border-[#22c55e] text-[#22c55e] shadow-sm font-bold hover:bg-[#22c55e]/30"
+                                      : "bg-[#242a32] border-[#2a3340] text-[#dde3ed] hover:border-[#94a3b8]/50 hover:bg-[#2c333e]"
+                                  }`}
+                                  title={
+                                    isUserReacted
+                                      ? `You reacted with ${r.emoji} (click to remove)`
+                                      : `Click to react with ${r.emoji}`
+                                  }
+                                >
+                                  <span className="text-xs">{r.emoji}</span>
+                                  <span className="font-mono">{r.count}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     </motion.div>
                   );
                 })}
@@ -773,29 +880,94 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Chat Input */}
+          {/* Chat Input & Media Attachment Controls */}
           <form onSubmit={handleSendMessage} className="pt-2.5 border-t border-[#2a3340] relative">
+            {/* Pending Attachment Preview Chip */}
+            {pendingFile && (
+              <div className="mb-2 p-1.5 rounded-lg bg-[#242a32] border border-[#2a3340] flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  {pendingFilePreview && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={pendingFilePreview}
+                      alt="Preview"
+                      className="w-9 h-9 rounded-md object-cover border border-[#2a3340] shrink-0"
+                    />
+                  )}
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-[11px] font-medium text-[#dde3ed] truncate max-w-[180px]">
+                      {pendingFile.name}
+                    </span>
+                    <span className="text-[9px] text-[#94a3b8]">
+                      {(pendingFile.size / 1024).toFixed(1)} KB
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleClearPendingFile}
+                  disabled={isUploading}
+                  className="p-1 rounded-md hover:bg-[#1a2027] text-[#94a3b8] hover:text-red-400 transition-colors cursor-pointer"
+                  title="Remove image"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Hidden File Input */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              className="hidden"
+            />
+
             <div className="relative flex items-center">
+              {/* Paperclip Button */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="absolute left-2 p-1 rounded-md text-[#94a3b8] hover:text-[#22c55e] hover:bg-[#242a32] transition-colors cursor-pointer disabled:opacity-40"
+                title="Attach image (PNG, JPEG, WebP, GIF)"
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+
               <input
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder="Type a word, phrase or translation..."
-                className="w-full bg-[#1a2027] text-[#dde3ed] placeholder:text-[#94a3b8] text-xs sm:text-sm px-3 py-2 rounded-lg sm:rounded-xl border border-[#2a3340] focus:outline-none focus:border-[#22c55e] focus:ring-1 focus:ring-[#22c55e] pr-10 transition-all"
+                disabled={isUploading}
+                placeholder={isUploading ? "Uploading attachment..." : "Type a message or press Enter..."}
+                className="w-full bg-[#1a2027] text-[#dde3ed] placeholder:text-[#94a3b8] text-xs sm:text-sm pl-9 pr-10 py-2 rounded-lg sm:rounded-xl border border-[#2a3340] focus:outline-none focus:border-[#22c55e] focus:ring-1 focus:ring-[#22c55e] transition-all disabled:opacity-50"
               />
+
               <motion.button
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
                 type="submit"
-                disabled={!inputText.trim()}
-                className="absolute right-1.5 p-1.5 rounded-lg bg-[#22c55e] text-[#003915] hover:bg-[#4be277] disabled:opacity-40 disabled:hover:bg-[#22c55e] transition-colors cursor-pointer"
+                disabled={(!inputText.trim() && !pendingFile) || isUploading}
+                className="absolute right-1.5 p-1.5 rounded-lg bg-[#22c55e] text-[#003915] hover:bg-[#4be277] disabled:opacity-40 disabled:hover:bg-[#22c55e] transition-colors cursor-pointer flex items-center justify-center"
               >
-                <Send className="w-3.5 h-3.5" />
+                {isUploading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Send className="w-3.5 h-3.5" />
+                )}
               </motion.button>
             </div>
           </form>
         </aside>
       </div>
+
+      {/* High-Resolution Interactive Image Lightbox Modal */}
+      <ImageLightbox
+        imageUrl={activeLightboxImage}
+        onClose={() => setActiveLightboxImage(null)}
+      />
     </div>
   );
 }

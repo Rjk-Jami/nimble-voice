@@ -146,6 +146,8 @@ class SocketService {
           roomId,
           content: messageOrContent.content,
           type: messageOrContent.type,
+          mediaUrl: messageOrContent.mediaUrl,
+          mediaType: messageOrContent.mediaType,
           message: messageOrContent,
         });
       }

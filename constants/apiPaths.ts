@@ -24,6 +24,7 @@ export const API_PATHS = {
     JOIN: (roomId: string) => `/api/rooms/${roomId}/join`,
     LEAVE: (roomId: string) => `/api/rooms/${roomId}/leave`,
     PARTICIPANTS: (roomId: string) => `/api/rooms/${roomId}/participants`,
+    ATTACHMENTS: (roomId: string) => `/api/rooms/${roomId}/attachments`,
   },
 
   // 3. In-Room Chat Backchannel
@@ -32,6 +33,9 @@ export const API_PATHS = {
     SEND: (roomId: string) => `/api/rooms/${roomId}/messages`,
     DELETE: (roomId: string, messageId: string) =>
       `/api/rooms/${roomId}/messages/${messageId}`,
+    ATTACHMENTS: (roomId: string) => `/api/rooms/${roomId}/attachments`,
+    REACTIONS: (roomId: string, messageId: string) =>
+      `/api/rooms/${roomId}/messages/${messageId}/reactions`,
   },
 
   // 4. Users & Language Portfolio

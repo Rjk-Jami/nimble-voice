@@ -7,6 +7,8 @@ export interface ChatMessage {
   sender: User | { id: string; name: string; avatarUrl?: string };
   content: string;
   type: MessageType;
+  mediaUrl?: string;
+  mediaType?: string;
   reactions?: Record<string, string[]> | string[];
   isHighlighted?: boolean;
   createdAt: string;

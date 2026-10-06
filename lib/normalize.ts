@@ -128,6 +128,8 @@ export function normalizeMessage(raw: any): ChatMessage {
     sender: senderUser,
     content: raw.content || raw.text || "",
     type: raw.type || "TEXT",
+    mediaUrl: raw.mediaUrl || raw.media_url,
+    mediaType: raw.mediaType || raw.media_type,
     createdAt: raw.timestamp || raw.created_at || raw.createdAt || new Date().toISOString(),
     isHighlighted: !!(raw.isHighlighted ?? raw.is_highlighted),
     reactions: raw.reactions || {},

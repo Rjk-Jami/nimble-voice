@@ -36,22 +36,51 @@ export function useMessenger(roomId: string, initialMessages: ChatMessage[] = []
     const handleReactionUpdated = ({
       messageId,
       reactions,
+      emoji,
+      userId,
     }: {
       messageId: string;
-      reactions: Record<string, string[]>;
+      reactions?: Record<string, string[]>;
+      emoji?: string;
+      userId?: string;
     }) => {
       const current = useMessengerStore.getState().messages;
       setMessages(
-        current.map((m) => (m.id === messageId ? { ...m, reactions } : m))
+        current.map((m) => {
+          if (m.id !== messageId) return m;
+          if (reactions) {
+            return { ...m, reactions };
+          }
+          if (emoji && userId) {
+            const rMap: Record<string, string[]> =
+              m.reactions && typeof m.reactions === "object" && !Array.isArray(m.reactions)
+                ? { ...(m.reactions as Record<string, string[]>) }
+                : {};
+            const userList = rMap[emoji] || [];
+            const already = userList.includes(userId);
+            Object.keys(rMap).forEach((e) => {
+              rMap[e] = rMap[e].filter((id) => id !== userId);
+              if (rMap[e].length === 0) delete rMap[e];
+            });
+            if (!already) {
+              if (!rMap[emoji]) rMap[emoji] = [];
+              rMap[emoji].push(userId);
+            }
+            return { ...m, reactions: rMap };
+          }
+          return m;
+        })
       );
     };
 
     socket.on("chat:new-message", handleNewMessage);
     socket.on("chat:reaction-updated", handleReactionUpdated);
+    socket.on("chat:reaction-add", handleReactionUpdated);
 
     return () => {
       socket.off("chat:new-message", handleNewMessage);
       socket.off("chat:reaction-updated", handleReactionUpdated);
+      socket.off("chat:reaction-add", handleReactionUpdated);
     };
   }, [roomId, user?.id, addMessage, setMessages]);
 
@@ -72,15 +101,42 @@ export function useMessenger(roomId: string, initialMessages: ChatMessage[] = []
     }
   }, [initialMessages, messages.length, roomId, setMessages]);
 
+  const uploadAttachment = useCallback(
+    async (file: File): Promise<{ url: string; filename: string; contentType?: string } | null> => {
+      if (!roomId) return null;
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const res: any = await apiClient.post(API_PATHS.ROOMS.ATTACHMENTS(roomId), formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+        return {
+          url: res?.url || "",
+          filename: res?.filename || file.name,
+          contentType: res?.contentType || file.type,
+        };
+      } catch (err) {
+        console.error("Failed to upload attachment:", err);
+        return null;
+      }
+    },
+    [roomId]
+  );
+
   const handleSendText = useCallback(
-    async (text: string) => {
-      if (!text.trim() || !user) return;
+    async (text: string, media?: { url: string; type: string }) => {
+      if ((!text.trim() && !media) || !user) return;
+      const msgType = media ? MessageType.IMAGE : MessageType.TEXT;
       const newMsg: ChatMessage = {
         id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         roomId,
         sender: { id: user.id, name: user.name, avatarUrl: user.avatarUrl },
         content: text.trim(),
-        type: MessageType.TEXT,
+        type: msgType,
+        mediaUrl: media?.url,
+        mediaType: media?.type,
         reactions: {},
         createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
@@ -92,7 +148,9 @@ export function useMessenger(roomId: string, initialMessages: ChatMessage[] = []
       try {
         await apiClient.post(API_PATHS.MESSAGES.SEND(roomId), {
           content: text.trim(),
-          type: "TEXT",
+          type: msgType,
+          mediaUrl: media?.url,
+          mediaType: media?.type,
         });
       } catch (err) {
         console.warn("Backend chat persistence notice:", err);
@@ -157,6 +215,13 @@ export function useMessenger(roomId: string, initialMessages: ChatMessage[] = []
       }
 
       socketService.reactToMessage(roomId, messageId, emoji, user.id);
+
+      // Persist reaction to backend
+      apiClient
+        .post(API_PATHS.MESSAGES.REACTIONS(roomId, messageId), { emoji })
+        .catch((err) => {
+          console.warn("Backend reaction persistence notice:", err);
+        });
     },
     [roomId, user?.id, setMessages]
   );
@@ -165,6 +230,7 @@ export function useMessenger(roomId: string, initialMessages: ChatMessage[] = []
     messages,
     unreadCount,
     sendMessage: handleSendText,
+    uploadAttachment,
     sendReaction: handleSendReaction,
     reactToMessage: handleReactToMessage,
     clearMessages,

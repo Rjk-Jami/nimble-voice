@@ -5,4 +5,5 @@ export enum MessageType {
   LEAVE = "LEAVE",
   REACTION = "REACTION",
   IDIOM = "IDIOM",
+  IMAGE = "IMAGE",
 }
