@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRoomStore, useVoiceStore } from "@/stores";
 import { VoiceRoom } from "@/types";
 import { useWebRTC } from "./useWebRTC";
+import { webrtcMeshManager } from "@/lib/webrtc";
 import { apiClient } from "@/lib/axios";
 import { API_PATHS } from "@/constants";
 
@@ -78,6 +79,7 @@ export function useVoiceRoom(room: VoiceRoom | null) {
         console.warn("Backend leave notice:", err);
       }
     }
+    webrtcMeshManager.destroy();
     resetVoiceState();
     leaveRoom();
   }, [currentRoom?.id, resetVoiceState, leaveRoom]);

@@ -22,10 +22,12 @@ export function Navbar() {
     setCalibrationOpen,
     setSettingsOpen,
     setProfileOpen,
+    openLeaveConfirm,
   } = useUIStore();
 
   const user = useAuthStore((s) => s.user);
   const initUser = useAuthStore((s) => s.initUser);
+  const currentRoom = useRoomStore((s) => s.currentRoom);
   const isMuted = useVoiceStore((s) => s.isMuted);
   const isSpeaking = useVoiceStore((s) => (user?.id ? !!s.speakingMap[user.id] : false));
 
@@ -33,6 +35,22 @@ export function Navbar() {
   useEffect(() => {
     initUser();
   }, [initUser]);
+
+  const handleBrandClick = () => {
+    if (currentRoom) {
+      openLeaveConfirm("rooms");
+    } else {
+      setActiveTab("rooms");
+    }
+  };
+
+  const handleTabClick = (tabId: string) => {
+    if (currentRoom) {
+      openLeaveConfirm(tabId);
+    } else {
+      setActiveTab(tabId);
+    }
+  };
 
   return (
     <header className="fixed top-0 left-0 right-0 w-full z-50 bg-[#161c23]/95 backdrop-blur-md border-b border-[#2a3340]/60 shadow-[0_1px_12px_rgba(0,0,0,0.5)]">
@@ -42,7 +60,7 @@ export function Navbar() {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            onClick={() => setActiveTab("rooms")}
+            onClick={handleBrandClick}
             className="flex items-center gap-2.5 shrink-0 focus:outline-none group text-left cursor-pointer"
           >
             <div className="w-9 h-9 rounded-lg bg-gradient-to-tr from-[#22c55e] to-[#4be277] flex items-center justify-center text-[#003915] shadow-[0_0_12px_rgba(34,197,94,0.4)] group-hover:scale-105 transition-transform">
@@ -67,7 +85,7 @@ export function Navbar() {
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => handleTabClick(tab.id)}
                   className={`relative px-3 py-1.5 rounded-xl text-xs lg:text-sm font-semibold transition-colors cursor-pointer select-none whitespace-nowrap ${
                     isActive ? "text-[#22c55e]" : "text-[#94a3b8] hover:text-[#dde3ed]"
                   }`}

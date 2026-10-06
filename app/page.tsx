@@ -11,16 +11,14 @@ import { Navbar } from "@/components/Navbar";
 import { ProfileModal } from "@/components/ProfileModal";
 import { AuthModal } from "@/components/AuthModal";
 import { SettingsModal } from "@/components/SettingsModal";
+import { LeaveRoomModal } from "@/components/LeaveRoomModal";
 import { TopicsView } from "@/components/TopicsView";
 
 import { useRoomStore, useUIStore } from "@/stores";
-import { AnimatePresence, motion } from "framer-motion";
-import { PhoneOff } from "lucide-react";
+import { AnimatePresence } from "framer-motion";
 
 export default function Home() {
   const currentRoom = useRoomStore((s) => s.currentRoom);
-  const leaveRoom = useRoomStore((s) => s.leaveRoom);
-
   const { activeTab, setActiveTab, setCalibrationOpen } = useUIStore();
 
   return (
@@ -86,6 +84,7 @@ export default function Home() {
       <AuthModal />
       <AudioCalibrationModal />
       <SettingsModal />
+      <LeaveRoomModal />
     </div>
   );
 }

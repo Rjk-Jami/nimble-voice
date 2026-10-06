@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { useVoiceRoom, useMessenger, useSpeakingDetection } from "@/hooks";
-import { useAuthStore } from "@/stores";
+import { useAuthStore, useUIStore } from "@/stores";
 import { VoiceRoom } from "@/types";
 import {
   Mic,
@@ -85,6 +85,21 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
   );
 
   const user = useAuthStore((s) => s.user);
+  const openLeaveConfirm = useUIStore((s) => s.openLeaveConfirm);
+
+  // Guardrail: Intercept accidental tab close or page reload during active call
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+      return "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, []);
 
   // Messenger local input
   const [inputText, setInputText] = useState("");
@@ -352,7 +367,7 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
           <MotionButton
             variant="danger"
             size="sm"
-            onClick={leaveRoom}
+            onClick={() => openLeaveConfirm()}
             className="px-2.5 sm:px-3 py-1.5"
           >
             <PhoneOff className="w-3.5 h-3.5" />

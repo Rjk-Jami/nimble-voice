@@ -541,7 +541,7 @@ export class WebRTCMeshManager {
     });
     this.audioElements.clear();
 
-    // 3. Stop local tracks
+    // 3. Stop local and remote tracks
     if (this.localStream) {
       this.localStream.getTracks().forEach((track) => track.stop());
       this.localStream = null;
@@ -551,10 +551,19 @@ export class WebRTCMeshManager {
       this.screenStream = null;
     }
 
+    this.peerStreams.forEach((stream) => {
+      stream.getTracks().forEach((track) => track.stop());
+    });
     this.peerStreams.clear();
     this.queuedCandidates.clear();
 
-    // 4. Notify socket server
+    // 4. Clear callbacks
+    this.onRemoteStream = undefined;
+    this.onRemoteScreenStream = undefined;
+    this.onPeerDisconnected = undefined;
+    this.onConnectionStateChange = undefined;
+
+    // 5. Notify socket server
     socketService.leaveRoom();
     this.roomId = null;
   }

@@ -9,6 +9,8 @@ interface UIState {
   isSettingsOpen: boolean;
   isAuthOpen: boolean;
   authMode: "login" | "register";
+  isLeaveConfirmOpen: boolean;
+  pendingNavTab: string | null;
 
   setActiveTab: (tab: string) => void;
   openCreateModal: (initialTopic?: string) => void;
@@ -18,6 +20,8 @@ interface UIState {
   setSettingsOpen: (open: boolean) => void;
   openAuthModal: (mode?: "login" | "register") => void;
   closeAuthModal: () => void;
+  openLeaveConfirm: (pendingTab?: string | null) => void;
+  closeLeaveConfirm: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -29,6 +33,8 @@ export const useUIStore = create<UIState>((set) => ({
   isSettingsOpen: false,
   isAuthOpen: false,
   authMode: "login",
+  isLeaveConfirmOpen: false,
+  pendingNavTab: null,
 
   setActiveTab: (activeTab) => set({ activeTab }),
   openCreateModal: (createInitialTopic = "") =>
@@ -39,4 +45,8 @@ export const useUIStore = create<UIState>((set) => ({
   setSettingsOpen: (isSettingsOpen) => set({ isSettingsOpen }),
   openAuthModal: (mode = "login") => set({ isAuthOpen: true, authMode: mode }),
   closeAuthModal: () => set({ isAuthOpen: false }),
+  openLeaveConfirm: (pendingTab = null) =>
+    set({ isLeaveConfirmOpen: true, pendingNavTab: pendingTab }),
+  closeLeaveConfirm: () =>
+    set({ isLeaveConfirmOpen: false, pendingNavTab: null }),
 }));
