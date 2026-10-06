@@ -119,16 +119,34 @@ export function useRooms() {
       }
     };
 
+    const handleSpeakingChanged = (payload: any) => {
+      if (!payload) return;
+      const roomId = payload.roomId || payload.room_id;
+      const userId = payload.userId || payload.user_id;
+      if (!roomId || !userId) return;
+      const currentRooms = useLobbyStore.getState().rooms;
+      const room = currentRooms.find((r) => r.id === roomId);
+      if (room && room.participants) {
+        const isSpeaking = Boolean(payload.isSpeaking ?? payload.speaking);
+        const updatedParticipants = room.participants.map((p) =>
+          p.id === userId ? { ...p, isSpeaking } : p
+        );
+        updateRoom(roomId, { participants: updatedParticipants });
+      }
+    };
+
     socket.on("presence:update", handlePresenceUpdate);
     socket.on("lobby:room-created", handleRoomCreated);
     socket.on("lobby:room-updated", handleRoomUpdated);
     socket.on("lobby:room-deleted", handleRoomDeleted);
+    socket.on("voice:speaking-changed", handleSpeakingChanged);
 
     return () => {
       socket.off("presence:update", handlePresenceUpdate);
       socket.off("lobby:room-created", handleRoomCreated);
       socket.off("lobby:room-updated", handleRoomUpdated);
       socket.off("lobby:room-deleted", handleRoomDeleted);
+      socket.off("voice:speaking-changed", handleSpeakingChanged);
       socketService.leaveLobby();
     };
   }, [setLiveStats, addRoom, updateRoom, removeRoom]);

@@ -252,7 +252,7 @@ export function useWebRTC(roomId?: string) {
 
   // 5. Real-time microphone audio level analyzer and speaking detector
   useEffect(() => {
-    if (!localStream || isMuted || !user?.id || !roomId) {
+    if (!localStream || isMuted || isDeafened || !user?.id || !roomId) {
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (audioContextRef.current && audioContextRef.current.state !== "closed") {
         audioContextRef.current.close().catch(() => {});
@@ -263,6 +263,7 @@ export function useWebRTC(roomId?: string) {
         lastSpeakingStateRef.current = false;
         setSpeaking(user.id, false);
         setAudioLevel(user.id, 0);
+        updateParticipant(user.id, { isSpeaking: false, audioLevel: 0 });
         socketService.sendSpeaking(roomId, false, 0);
       }
       return;
@@ -275,7 +276,7 @@ export function useWebRTC(roomId?: string) {
       const audioContext = new AudioCtx();
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.5;
+      analyser.smoothingTimeConstant = 0.45;
 
       const source = audioContext.createMediaStreamSource(localStream);
       source.connect(analyser);
@@ -295,7 +296,7 @@ export function useWebRTC(roomId?: string) {
         }
         const avg = sum / dataArray.length;
         const normalizedVolume = Math.min(100, Math.round((avg / 128) * 100));
-        const speakingNow = normalizedVolume > 14;
+        const speakingNow = normalizedVolume > 12;
 
         setAudioLevel(user.id, normalizedVolume);
 
@@ -305,7 +306,7 @@ export function useWebRTC(roomId?: string) {
           socketService.sendSpeaking(roomId, speakingNow, normalizedVolume);
           updateParticipant(user.id, { isSpeaking: speakingNow, audioLevel: normalizedVolume });
         }
-      }, 100);
+      }, 60);
     } catch (e) {
       // AudioContext fallback
     }
@@ -316,7 +317,7 @@ export function useWebRTC(roomId?: string) {
         audioContextRef.current.close().catch(() => {});
       }
     };
-  }, [localStream, isMuted, user?.id, roomId]);
+  }, [localStream, isMuted, isDeafened, user?.id, roomId, setSpeaking, setAudioLevel, updateParticipant]);
 
   const handleShareScreen = useCallback(
     async (stream: MediaStream | null) => {
