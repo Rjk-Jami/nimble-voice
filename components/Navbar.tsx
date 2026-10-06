@@ -36,9 +36,9 @@ export function Navbar() {
 
   return (
     <header className="fixed top-0 left-0 right-0 w-full z-50 bg-[#161c23]/95 backdrop-blur-md border-b border-[#2a3340]/60 shadow-[0_1px_12px_rgba(0,0,0,0.5)]">
-      <div className="h-16 w-full px-4 sm:px-6 flex items-center justify-between gap-3 max-w-[1680px] mx-auto">
+      <div className="h-16 w-full px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-3 max-w-[1440px] mx-auto">
         {/* Brand & Main Links */}
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-4 lg:gap-6">
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
@@ -49,27 +49,28 @@ export function Navbar() {
               <span className="material-symbols-outlined text-2xl font-bold">graphic_eq</span>
             </div>
             <div className="flex flex-col">
-              <span className="font-bold text-lg text-[#dde3ed] tracking-tight flex items-center gap-1.5 leading-none">
+              <span className="font-bold text-fluid-title text-[#dde3ed] tracking-tight flex items-center gap-1.5 leading-none">
                 NimbleVoice
                 <span className="text-[10px] uppercase font-semibold tracking-wider px-1.5 py-0.5 rounded bg-[#22c55e]/20 text-[#22c55e] border border-[#22c55e]/30">
                   Live
                 </span>
               </span>
-              <span className="text-[11px] text-[#94a3b8] tracking-normal font-normal">
-                Free4Talk Protocol
+              <span className="text-fluid-caption text-[#94a3b8] tracking-normal font-normal">
+                Virtual Study & Voice Rooms
               </span>
             </div>
           </motion.button>
 
-          <nav className="hidden md:flex items-center gap-1 relative">
+          <nav className="hidden md:flex items-center gap-1 relative overflow-x-auto">
             {NAV_TABS.map((tab) => {
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`relative px-3.5 py-1.5 rounded-xl text-sm font-semibold transition-colors cursor-pointer select-none ${isActive ? "text-[#22c55e]" : "text-[#94a3b8] hover:text-[#dde3ed]"
-                    }`}
+                  className={`relative px-3 py-1.5 rounded-xl text-xs lg:text-sm font-semibold transition-colors cursor-pointer select-none whitespace-nowrap ${
+                    isActive ? "text-[#22c55e]" : "text-[#94a3b8] hover:text-[#dde3ed]"
+                  }`}
                 >
                   {isActive && (
                     <TabGlider

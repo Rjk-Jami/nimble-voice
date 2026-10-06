@@ -32,7 +32,7 @@ export function LobbyView() {
   const languageOptions = Object.values(Language);
 
   return (
-    <div className="w-full px-4 sm:px-6 py-6 flex flex-col gap-6 max-w-[1600px] mx-auto animate-fade-in">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6 max-w-[1440px] mx-auto animate-fade-in">
       {/* 1. TOP LIVE STATS RIBBON & BANNER */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
@@ -201,7 +201,7 @@ export function LobbyView() {
 
       {/* 3. ROOMS DIRECTORY GRID */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-[#dde3ed] flex items-center gap-2">
+        <h2 className="text-fluid-section font-bold text-[#dde3ed] flex items-center gap-2">
           <span>Active Conversation Rooms</span>
           <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-[#242a32] text-[#22c55e] border border-[#2a3340]">
             {rooms.length} available
@@ -221,7 +221,7 @@ export function LobbyView() {
             <span className="material-symbols-outlined text-3xl">mic_off</span>
           </div>
           <div className="max-w-md">
-            <h3 className="text-base font-bold text-[#dde3ed]">No active rooms match your filters</h3>
+            <h3 className="text-fluid-section font-bold text-[#dde3ed]">No active rooms match your filters</h3>
             <p className="text-sm text-[#94a3b8] mt-1">
               Be the first to open a room for{" "}
               {selectedLanguage !== Language.ALL ? selectedLanguage : "this topic"}! Learners are
@@ -237,7 +237,7 @@ export function LobbyView() {
           </MotionButton>
         </motion.div>
       ) : (
-        <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 w-full">
+        <StaggerContainer className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 w-full">
           {rooms.map((room) => {
             const isFull = room.participants.length >= room.maxSlots;
 
@@ -265,7 +265,7 @@ export function LobbyView() {
                     </div>
 
                     {/* Room Title */}
-                    <h3 className="font-bold text-base text-[#dde3ed] group-hover:text-[#4be277] transition-colors line-clamp-2 leading-snug">
+                    <h3 className="font-bold text-fluid-section text-[#dde3ed] group-hover:text-[#4be277] transition-colors line-clamp-2 leading-snug">
                       {room.title}
                     </h3>
 

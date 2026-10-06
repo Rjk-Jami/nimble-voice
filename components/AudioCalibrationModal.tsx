@@ -123,119 +123,122 @@ export function AudioCalibrationModal() {
       onClose={() => setCalibrationOpen(false)}
       title="Audio Hardware & Calibration"
       icon={<Sliders className="w-4 h-4" />}
-      maxWidth="max-w-lg"
+      maxWidth="max-w-md sm:max-w-lg"
+      bodyClassName="flex flex-col flex-1 min-h-0 overflow-hidden"
     >
-      {/* Live Mic Test Meter */}
-      <div className="p-4 bg-[#1a2027] border border-[#2a3340] rounded-xl flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-[#dde3ed] flex items-center gap-1.5">
-            <Mic className="w-4 h-4 text-[#22c55e]" />
-            Microphone Sensitivity & Volume
-          </span>
-          <div className="flex items-center gap-2">
-            <TacticalEqualizer isActive={true} barCount={4} size="sm" />
-            <span className="text-xs font-bold text-[#22c55e] font-mono">{micLevel}%</span>
+      <div className="flex-1 min-h-0 overflow-y-auto pr-1 sm:pr-2 space-y-4">
+        {/* Live Mic Test Meter */}
+        <div className="p-4 bg-[#1a2027] border border-[#2a3340] rounded-xl flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-[#dde3ed] flex items-center gap-1.5">
+              <Mic className="w-4 h-4 text-[#22c55e]" />
+              Microphone Sensitivity & Volume
+            </span>
+            <div className="flex items-center gap-2">
+              <TacticalEqualizer isActive={true} barCount={4} size="sm" />
+              <span className="text-xs font-bold text-[#22c55e] font-mono">{micLevel}%</span>
+            </div>
           </div>
+
+          {/* Dynamic Spring Level Meter Bar */}
+          <div className="w-full h-3 bg-[#090f15] rounded-full overflow-hidden p-0.5 border border-[#2a3340]">
+            <motion.div
+              className="h-full rounded-full bg-gradient-to-r from-[#22c55e] via-[#4be277] to-[#eab308]"
+              initial={{ width: "30%" }}
+              animate={{ width: `${micLevel}%` }}
+              transition={{
+                type: "spring",
+                stiffness: 300,
+                damping: 20,
+              }}
+            />
+          </div>
+          <p className="text-[11px] text-[#94a3b8] leading-relaxed">
+            Speak naturally. If the bar remains in green, your voice is clean and intelligible for other learners.
+          </p>
         </div>
 
-        {/* Dynamic Spring Level Meter Bar */}
-        <div className="w-full h-3 bg-[#090f15] rounded-full overflow-hidden p-0.5 border border-[#2a3340]">
-          <motion.div
-            className="h-full rounded-full bg-gradient-to-r from-[#22c55e] via-[#4be277] to-[#eab308]"
-            initial={{ width: "30%" }}
-            animate={{ width: `${micLevel}%` }}
-            transition={{
-              type: "spring",
-              stiffness: 300,
-              damping: 20,
-            }}
-          />
-        </div>
-        <p className="text-[11px] text-[#94a3b8]">
-          Speak naturally. If the bar remains in green, your voice is clean and intelligible for other learners.
-        </p>
-      </div>
-
-      {/* Hardware Devices Selector */}
-      <div className="flex flex-col gap-3">
-        <div>
-          <label className="block text-xs font-semibold text-[#dde3ed] mb-1">
-            Microphone Input Device
-          </label>
-          <select
-            value={audioInputId}
-            onChange={(e) => setAudioInputId(e.target.value)}
-            className="w-full bg-[#1a2027] text-[#dde3ed] text-xs sm:text-sm px-3 py-2 rounded-xl border border-[#2a3340] focus:outline-none focus:border-[#22c55e]"
-          >
-            {microphones.map((m) => (
-              <option key={m.deviceId} value={m.deviceId}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-xs font-semibold text-[#dde3ed] mb-1">
-            Speaker Output Device
-          </label>
-          <div className="flex items-center gap-2">
+        {/* Hardware Devices Selector */}
+        <div className="flex flex-col gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-[#dde3ed] mb-1.5">
+              Microphone Input Device
+            </label>
             <select
-              value={audioOutputId}
-              onChange={(e) => setAudioOutputId(e.target.value)}
-              className="w-full bg-[#1a2027] text-[#dde3ed] text-xs sm:text-sm px-3 py-2 rounded-xl border border-[#2a3340] focus:outline-none focus:border-[#22c55e]"
+              value={audioInputId}
+              onChange={(e) => setAudioInputId(e.target.value)}
+              className="w-full bg-[#1a2027] text-[#dde3ed] text-xs sm:text-sm px-3 py-2.5 rounded-xl border border-[#2a3340] focus:outline-none focus:border-[#22c55e] truncate min-h-[40px]"
             >
-              {speakers.map((s) => (
-                <option key={s.deviceId} value={s.deviceId}>
-                  {s.label}
+              {microphones.map((m) => (
+                <option key={m.deviceId} value={m.deviceId} title={m.label}>
+                  {m.label}
                 </option>
               ))}
             </select>
-            <motion.button
-              type="button"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleTestSpeaker}
-              className="px-3 py-2 rounded-xl bg-[#242a32] hover:bg-[#2f353d] text-xs font-semibold text-[#dde3ed] border border-[#2a3340] shrink-0 flex items-center gap-1 cursor-pointer transition-colors"
-            >
-              <Volume2 className="w-3.5 h-3.5 text-[#22c55e]" />
-              <span>{isPlayingTestChime ? "Playing..." : "Test"}</span>
-            </motion.button>
           </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-[#dde3ed] mb-1.5">
+              Speaker Output Device
+            </label>
+            <div className="flex items-center gap-2">
+              <select
+                value={audioOutputId}
+                onChange={(e) => setAudioOutputId(e.target.value)}
+                className="w-full min-w-0 bg-[#1a2027] text-[#dde3ed] text-xs sm:text-sm px-3 py-2.5 rounded-xl border border-[#2a3340] focus:outline-none focus:border-[#22c55e] truncate min-h-[40px]"
+              >
+                {speakers.map((s) => (
+                  <option key={s.deviceId} value={s.deviceId} title={s.label}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <motion.button
+                type="button"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleTestSpeaker}
+                className="min-h-[40px] px-3.5 py-2 rounded-xl bg-[#242a32] hover:bg-[#2f353d] text-xs font-semibold text-[#dde3ed] border border-[#2a3340] shrink-0 flex items-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <Volume2 className="w-3.5 h-3.5 text-[#22c55e]" />
+                <span>{isPlayingTestChime ? "Testing..." : "Test"}</span>
+              </motion.button>
+            </div>
+          </div>
+        </div>
+
+        {/* Audio Filters (Noise cancellation & Echo) */}
+        <div className="space-y-2.5">
+          <label className="flex items-center justify-between p-3 rounded-xl bg-[#1a2027] border border-[#2a3340] cursor-pointer hover:border-[#2a3340]/90 transition-colors min-h-[48px]">
+            <div className="flex flex-col pr-2">
+              <span className="text-xs font-semibold text-[#dde3ed]">AI Noise Suppression (RNNoise)</span>
+              <span className="text-[11px] text-[#94a3b8]">Removes background fans, typing, and ambient noise</span>
+            </div>
+            <input
+              type="checkbox"
+              checked={noiseSuppression}
+              onChange={(e) => setNoiseSuppression(e.target.checked)}
+              className="accent-[#22c55e] w-4 h-4 rounded cursor-pointer shrink-0"
+            />
+          </label>
+
+          <label className="flex items-center justify-between p-3 rounded-xl bg-[#1a2027] border border-[#2a3340] cursor-pointer hover:border-[#2a3340]/90 transition-colors min-h-[48px]">
+            <div className="flex flex-col pr-2">
+              <span className="text-xs font-semibold text-[#dde3ed]">Acoustic Echo Cancellation</span>
+              <span className="text-[11px] text-[#94a3b8]">Prevents feedback loops when speakers are nearby</span>
+            </div>
+            <input
+              type="checkbox"
+              checked={echoCancellation}
+              onChange={(e) => setEchoCancellation(e.target.checked)}
+              className="accent-[#22c55e] w-4 h-4 rounded cursor-pointer shrink-0"
+            />
+          </label>
         </div>
       </div>
 
-      {/* Audio Filters (Noise cancellation & Echo) */}
-      <div className="space-y-2">
-        <label className="flex items-center justify-between p-3 rounded-xl bg-[#1a2027] border border-[#2a3340] cursor-pointer hover:border-[#2a3340]/90 transition-colors">
-          <div className="flex flex-col">
-            <span className="text-xs font-semibold text-[#dde3ed]">AI Noise Suppression (RNNoise)</span>
-            <span className="text-[11px] text-[#94a3b8]">Removes background fans, typing, and ambient noise</span>
-          </div>
-          <input
-            type="checkbox"
-            checked={noiseSuppression}
-            onChange={(e) => setNoiseSuppression(e.target.checked)}
-            className="accent-[#22c55e] w-4 h-4 rounded cursor-pointer"
-          />
-        </label>
-
-        <label className="flex items-center justify-between p-3 rounded-xl bg-[#1a2027] border border-[#2a3340] cursor-pointer hover:border-[#2a3340]/90 transition-colors">
-          <div className="flex flex-col">
-            <span className="text-xs font-semibold text-[#dde3ed]">Acoustic Echo Cancellation</span>
-            <span className="text-[11px] text-[#94a3b8]">Prevents feedback loops when speakers are nearby</span>
-          </div>
-          <input
-            type="checkbox"
-            checked={echoCancellation}
-            onChange={(e) => setEchoCancellation(e.target.checked)}
-            className="accent-[#22c55e] w-4 h-4 rounded cursor-pointer"
-          />
-        </label>
-      </div>
-
-      {/* Footer */}
-      <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#2a3340]">
+      {/* Sticky Action Footer */}
+      <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#2a3340] shrink-0 mt-3">
         <MotionButton
           variant="primary"
           size="md"

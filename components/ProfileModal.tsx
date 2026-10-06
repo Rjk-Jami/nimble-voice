@@ -45,184 +45,188 @@ export function ProfileModal() {
       onClose={() => setProfileOpen(false)}
       title="Learner Profile & Identity"
       icon={<User className="w-4 h-4" />}
-      maxWidth="max-w-xl"
+      maxWidth="max-w-lg sm:max-w-xl"
+      bodyClassName="flex flex-col flex-1 min-h-0 overflow-hidden"
     >
       {user && (
-        <div className="flex flex-col gap-4">
-          {/* User Card Top */}
-          <div className="flex items-center justify-between bg-[#1a2027] border border-[#2a3340] p-4 rounded-xl">
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                <img
-                  src={
-                    user.avatarUrl ||
-                    `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.name)}`
-                  }
-                  alt={user.name}
-                  className="w-16 h-16 rounded-full object-cover border-2 border-[#22c55e]"
-                />
-                <span className="absolute bottom-0 right-0 w-4 h-4 rounded-full bg-[#22c55e] border-2 border-[#1a2027]"></span>
-              </div>
-
-              <div className="flex flex-col">
-                <div className="flex items-center gap-2">
-                  <h4 className="font-bold text-base text-[#dde3ed]">{user.name}</h4>
-                  <span
-                    className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border ${
-                      user.isGuest
-                        ? "bg-[#eab308]/15 text-[#eab308] border-[#eab308]/30"
-                        : "bg-[#22c55e]/20 text-[#22c55e] border-[#22c55e]/30"
-                    }`}
-                  >
-                    {user.isGuest ? "Guest Mode" : "Active Learner"}
-                  </span>
-                </div>
-                <span className="text-xs text-[#94a3b8]">
-                  {user.location || "Global"} • Native: {user.nativeLanguage} • Learning: {user.learningLanguage}
-                </span>
-                <div className="flex items-center gap-3 mt-1.5 text-xs">
-                  <span className="text-[#dde3ed] font-semibold flex items-center gap-1">
-                    <Award className="w-3.5 h-3.5 text-[#eab308]" />
-                    {user.karma} Karma
-                  </span>
-                  <span className="text-[#dde3ed] font-semibold flex items-center gap-1">
-                    <Flame className="w-3.5 h-3.5 text-[#22c55e]" />
-                    {user.streak} Day Streak
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={() => {
-                setName(user.name);
-                setLocation(user.location || "");
-                setNativeLanguage(user.nativeLanguage);
-                setLearningLanguage(user.learningLanguage);
-                setIsEditing(!isEditing);
-              }}
-              className="p-2 rounded-lg bg-[#242a32] hover:bg-[#2f353d] text-[#94a3b8] hover:text-[#dde3ed] transition-colors cursor-pointer"
-              title="Edit Profile"
-            >
-              <Edit2 className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Dynamic Inline Editor */}
-          {isEditing && (
-            <form
-              onSubmit={handleSave}
-              className="p-4 rounded-xl bg-[#161c23] border border-[#22c55e]/40 flex flex-col gap-3 animate-fade-in"
-            >
-              <span className="text-xs font-bold text-[#22c55e] uppercase tracking-wider">
-                Edit Display Profile
-              </span>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] text-[#94a3b8]">Your Name</label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="bg-[#1a2027] text-xs text-[#dde3ed] p-2 rounded-lg border border-[#2a3340] focus:border-[#22c55e] focus:outline-none"
-                    placeholder="Enter name"
+        <div className="flex flex-col flex-1 min-h-0">
+          <div className="flex-1 min-h-0 overflow-y-auto pr-1 sm:pr-2 space-y-4">
+            {/* User Card Top - responsive stacked on mobile, row on tablet/desktop */}
+            <div className="flex flex-col sm:flex-row items-center sm:items-start justify-between bg-[#1a2027] border border-[#2a3340] p-4 rounded-xl gap-4">
+              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-left">
+                <div className="relative shrink-0">
+                  <img
+                    src={
+                      user.avatarUrl ||
+                      `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.name)}`
+                    }
+                    alt={user.name}
+                    className="w-16 h-16 rounded-full object-cover border-2 border-[#22c55e]"
                   />
+                  <span className="absolute bottom-0 right-0 w-4 h-4 rounded-full bg-[#22c55e] border-2 border-[#1a2027]"></span>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] text-[#94a3b8]">Location</label>
-                  <input
-                    type="text"
-                    value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                    className="bg-[#1a2027] text-xs text-[#dde3ed] p-2 rounded-lg border border-[#2a3340] focus:border-[#22c55e] focus:outline-none"
-                    placeholder="City, Country"
-                  />
-                </div>
-              </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#2a3340]">
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs text-[#94a3b8] hover:text-[#dde3ed] hover:bg-[#242a32]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#22c55e] text-[#003915] text-xs font-bold hover:bg-[#4be277]"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* Spoken & Target Languages Portfolio */}
-          <div className="flex flex-col gap-2.5">
-            <h5 className="text-xs font-bold text-[#dde3ed] uppercase tracking-wider">
-              Language Proficiencies (CEFR)
-            </h5>
-
-            <div className="space-y-2">
-              {Object.entries(user.cefrPortfolio).map(([langName, level]) => {
-                const flag =
-                  LANGUAGE_FLAGS[langName as Language] ||
-                  LANGUAGE_FLAGS[Language.ENGLISH] ||
-                  "🌐";
-                return (
-                  <div
-                    key={langName}
-                    className="flex items-center justify-between p-3 rounded-xl bg-[#1a2027] border border-[#2a3340]"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <span className="text-xl">{flag}</span>
-                      <div className="flex flex-col">
-                        <span className="text-xs font-bold text-[#dde3ed]">{langName}</span>
-                        <span className="text-[10px] text-[#94a3b8]">Verified Proficiency</span>
-                      </div>
-                    </div>
-                    <span className="px-2.5 py-1 rounded-md bg-[#242a32] text-[#22c55e] text-xs font-bold border border-[#2a3340]">
-                      {level}
+                <div className="flex flex-col items-center sm:items-start">
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                    <h4 className="font-bold text-base text-[#dde3ed]">{user.name}</h4>
+                    <span
+                      className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border ${
+                        user.isGuest
+                          ? "bg-[#eab308]/15 text-[#eab308] border-[#eab308]/30"
+                          : "bg-[#22c55e]/20 text-[#22c55e] border-[#22c55e]/30"
+                      }`}
+                    >
+                      {user.isGuest ? "Guest Mode" : "Active Learner"}
                     </span>
                   </div>
-                );
-              })}
+                  <span className="text-xs text-[#94a3b8] mt-1">
+                    {user.location || "Global"} • Native: {user.nativeLanguage} • Learning: {user.learningLanguage}
+                  </span>
+                  <div className="flex items-center gap-3 mt-2 text-xs">
+                    <span className="text-[#dde3ed] font-semibold flex items-center gap-1">
+                      <Award className="w-3.5 h-3.5 text-[#eab308]" />
+                      {user.karma} Karma
+                    </span>
+                    <span className="text-[#dde3ed] font-semibold flex items-center gap-1">
+                      <Flame className="w-3.5 h-3.5 text-[#22c55e]" />
+                      {user.streak} Day Streak
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  setName(user.name);
+                  setLocation(user.location || "");
+                  setNativeLanguage(user.nativeLanguage);
+                  setLearningLanguage(user.learningLanguage);
+                  setIsEditing(!isEditing);
+                }}
+                className="p-2 rounded-lg bg-[#242a32] hover:bg-[#2f353d] text-[#94a3b8] hover:text-[#dde3ed] transition-colors cursor-pointer self-center sm:self-start shrink-0"
+                title="Edit Profile"
+              >
+                <Edit2 className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Dynamic Inline Editor */}
+            {isEditing && (
+              <form
+                onSubmit={handleSave}
+                className="p-4 rounded-xl bg-[#161c23] border border-[#22c55e]/40 flex flex-col gap-3 animate-fade-in"
+              >
+                <span className="text-xs font-bold text-[#22c55e] uppercase tracking-wider">
+                  Edit Display Profile
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] text-[#94a3b8]">Your Name</label>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="bg-[#1a2027] text-xs text-[#dde3ed] p-2.5 rounded-lg border border-[#2a3340] focus:border-[#22c55e] focus:outline-none min-h-[40px]"
+                      placeholder="Enter name"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] text-[#94a3b8]">Location</label>
+                    <input
+                      type="text"
+                      value={location}
+                      onChange={(e) => setLocation(e.target.value)}
+                      className="bg-[#1a2027] text-xs text-[#dde3ed] p-2.5 rounded-lg border border-[#2a3340] focus:border-[#22c55e] focus:outline-none min-h-[40px]"
+                      placeholder="City, Country"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#2a3340]">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditing(false)}
+                    className="px-3 py-1.5 rounded-lg text-xs text-[#94a3b8] hover:text-[#dde3ed] hover:bg-[#242a32]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#22c55e] text-[#003915] text-xs font-bold hover:bg-[#4be277]"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    Save Changes
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Spoken & Target Languages Portfolio */}
+            <div className="flex flex-col gap-2.5">
+              <h5 className="text-xs font-bold text-[#dde3ed] uppercase tracking-wider">
+                Language Proficiencies (CEFR)
+              </h5>
+
+              <div className="space-y-2">
+                {Object.entries(user.cefrPortfolio).map(([langName, level]) => {
+                  const flag =
+                    LANGUAGE_FLAGS[langName as Language] ||
+                    LANGUAGE_FLAGS[Language.ENGLISH] ||
+                    "🌐";
+                  return (
+                    <div
+                      key={langName}
+                      className="flex items-center justify-between p-3 rounded-xl bg-[#1a2027] border border-[#2a3340]"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-xl">{flag}</span>
+                        <div className="flex flex-col">
+                          <span className="text-xs font-bold text-[#dde3ed]">{langName}</span>
+                          <span className="text-[10px] text-[#94a3b8]">Verified Proficiency</span>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-md bg-[#242a32] text-[#22c55e] text-xs font-bold border border-[#2a3340]">
+                        {level}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Dynamic Speaking Practice Stats */}
+            <div className="grid grid-cols-3 gap-2 sm:gap-3 text-center">
+              <div className="p-3 bg-[#1a2027] border border-[#2a3340] rounded-xl">
+                <span className="text-base sm:text-lg font-bold text-[#22c55e]">{user.hoursSpoken} hrs</span>
+                <p className="text-[10px] sm:text-[11px] text-[#94a3b8] mt-0.5">Spoken this month</p>
+              </div>
+              <div className="p-3 bg-[#1a2027] border border-[#2a3340] rounded-xl">
+                <span className="text-base sm:text-lg font-bold text-[#dde3ed]">
+                  {user.totalRoomsJoined || 1} rooms
+                </span>
+                <p className="text-[10px] sm:text-[11px] text-[#94a3b8] mt-0.5">Joined or hosted</p>
+              </div>
+              <div className="p-3 bg-[#1a2027] border border-[#2a3340] rounded-xl">
+                <span className="text-base sm:text-lg font-bold text-[#dde3ed]">
+                  {user.frequentPartnersCount || 0} peers
+                </span>
+                <p className="text-[10px] sm:text-[11px] text-[#94a3b8] mt-0.5">Frequent partners</p>
+              </div>
             </div>
           </div>
 
-          {/* Dynamic Speaking Practice Stats */}
-          <div className="grid grid-cols-3 gap-3 text-center">
-            <div className="p-3 bg-[#1a2027] border border-[#2a3340] rounded-xl">
-              <span className="text-lg font-bold text-[#22c55e]">{user.hoursSpoken} hrs</span>
-              <p className="text-[11px] text-[#94a3b8] mt-0.5">Spoken this month</p>
-            </div>
-            <div className="p-3 bg-[#1a2027] border border-[#2a3340] rounded-xl">
-              <span className="text-lg font-bold text-[#dde3ed]">
-                {user.totalRoomsJoined || 1} rooms
-              </span>
-              <p className="text-[11px] text-[#94a3b8] mt-0.5">Joined or hosted</p>
-            </div>
-            <div className="p-3 bg-[#1a2027] border border-[#2a3340] rounded-xl">
-              <span className="text-lg font-bold text-[#dde3ed]">
-                {user.frequentPartnersCount || 0} peers
-              </span>
-              <p className="text-[11px] text-[#94a3b8] mt-0.5">Frequent partners</p>
-            </div>
-          </div>
-
-          {/* Footer Actions */}
-          <div className="flex items-center justify-between pt-3 border-t border-[#2a3340]">
+          {/* Sticky Action Footer */}
+          <div className="flex items-center justify-between pt-3 border-t border-[#2a3340] shrink-0 mt-3">
             <button
               onClick={() => {
                 setProfileOpen(false);
                 setCalibrationOpen(true);
               }}
-              className="flex items-center gap-1.5 text-xs font-semibold text-[#22c55e] hover:text-[#4be277] cursor-pointer"
+              className="flex items-center gap-1.5 text-xs font-semibold text-[#22c55e] hover:text-[#4be277] cursor-pointer min-h-[36px]"
             >
               <Sliders className="w-4 h-4" />
-              <span>Check Microphone & Audio</span>
+              <span className="hidden xs:inline">Check Microphone & Audio</span>
+              <span className="xs:hidden">Audio Test</span>
             </button>
 
             <MotionButton

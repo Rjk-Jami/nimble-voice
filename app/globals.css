@@ -35,6 +35,13 @@
   --color-outline-variant: var(--outline-variant);
 
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Fluid Proportional Typography Tokens (Clamp-based) */
+  --text-fluid-hero: clamp(1.75rem, 1.25rem + 1.8vw, 2.5rem);
+  --text-fluid-title: clamp(1.25rem, 1rem + 1vw, 1.75rem);
+  --text-fluid-section: clamp(1.125rem, 0.95rem + 0.5vw, 1.375rem);
+  --text-fluid-body: clamp(0.875rem, 0.85rem + 0.15vw, 1rem);
+  --text-fluid-caption: clamp(0.75rem, 0.72rem + 0.1vw, 0.8125rem);
 }
 
 :root {
@@ -69,10 +76,40 @@
   --outline-variant: #2a3340;
 }
 
+/* Fluid Typography Utilities */
+.text-fluid-hero {
+  font-size: var(--text-fluid-hero);
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+.text-fluid-title {
+  font-size: var(--text-fluid-title);
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.text-fluid-section {
+  font-size: var(--text-fluid-section);
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+
+.text-fluid-body {
+  font-size: var(--text-fluid-body);
+  line-height: 1.5;
+}
+
+.text-fluid-caption {
+  font-size: var(--text-fluid-caption);
+  line-height: 1.4;
+}
+
 body {
   background-color: var(--bg-canvas);
   color: var(--on-surface);
   font-family: var(--font-sans);
+  font-size: var(--text-fluid-body);
   overflow-x: hidden;
 }
 

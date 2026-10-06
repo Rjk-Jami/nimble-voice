@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { Providers } from "@/components/Providers";
 import "./globals.css";
@@ -10,8 +10,14 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "NimbleVoice | Free4Talk Live Voice Exchange Platform",
-  description: "Real-time multilingual voice conversation platform. Practice languages naturally with native speakers worldwide.",
+  title: "NimbleVoice | Real-Time Virtual Study & Voice Rooms",
+  description: "Real-time multilingual voice and study platform. Connect with speakers and learners worldwide in zero-friction audio spaces.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
 };
 
 export default function RootLayout({
