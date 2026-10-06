@@ -16,6 +16,8 @@ interface LobbyState {
   liveStats: LiveStats;
   setRooms: (rooms: VoiceRoom[]) => void;
   addRoom: (room: VoiceRoom) => void;
+  updateRoom: (roomId: string, updates: Partial<VoiceRoom>) => void;
+  removeRoom: (roomId: string) => void;
   setSearchQuery: (query: string) => void;
   setSelectedLanguage: (lang: Language) => void;
   setActiveFilter: (filter: string | null) => void;
@@ -121,6 +123,26 @@ export const useLobbyStore = create<LobbyState>((set, get) => ({
   addRoom: (room) =>
     set((state) => {
       const updated = [room, ...state.rooms.filter((r) => r.id !== room.id)];
+      return {
+        rooms: updated,
+        liveStats: calculateStats(updated, state.liveStats.onlineCount),
+      };
+    }),
+
+  updateRoom: (roomId, updates) =>
+    set((state) => {
+      const updated = state.rooms.map((r) =>
+        r.id === roomId ? { ...r, ...updates } : r
+      );
+      return {
+        rooms: updated,
+        liveStats: calculateStats(updated, state.liveStats.onlineCount),
+      };
+    }),
+
+  removeRoom: (roomId) =>
+    set((state) => {
+      const updated = state.rooms.filter((r) => r.id !== roomId);
       return {
         rooms: updated,
         liveStats: calculateStats(updated, state.liveStats.onlineCount),

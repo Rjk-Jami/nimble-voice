@@ -89,6 +89,17 @@ class SocketService {
     return !!this.socket?.connected;
   }
 
+  public joinLobby(): void {
+    const socket = this.connect();
+    socket.emit("lobby:join");
+  }
+
+  public leaveLobby(): void {
+    if (this.socket?.connected) {
+      this.socket.emit("lobby:leave");
+    }
+  }
+
   public joinRoom(roomId: string, user: Partial<User>): void {
     const socket = this.connect();
     socket.emit("room:join", { roomId, user });

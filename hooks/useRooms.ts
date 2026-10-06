@@ -9,7 +9,7 @@ import { useAuthStore, useLobbyStore, useRoomStore } from "@/stores";
 import { VoiceRoom } from "@/types";
 import { useEffect, useMemo } from "react";
 import useSWR from "swr";
-
+import { socketService } from "@/lib/socket";
 
 export function useRooms() {
   const {
@@ -24,6 +24,8 @@ export function useRooms() {
     setSelectedLanguage,
     setActiveFilter,
     addRoom,
+    updateRoom,
+    removeRoom,
   } = useLobbyStore();
 
   const user = useAuthStore((s) => s.user);
@@ -72,6 +74,64 @@ export function useRooms() {
       });
     }
   }, [serverStats, setLiveStats, serverRooms, storeRooms]);
+
+  // Real-time Socket.IO global presence and lobby room state updates
+  useEffect(() => {
+    const socket = socketService.connect();
+    socketService.joinLobby();
+
+    const handlePresenceUpdate = (payload: any) => {
+      if (!payload) return;
+      setLiveStats({
+        onlineCount: payload.onlineCount ?? payload.online_count,
+        activeRoomsCount: payload.activeRoomsCount ?? payload.active_rooms,
+        liveLanguagesCount: payload.liveLanguagesCount ?? payload.live_languages,
+      });
+    };
+
+    const handleRoomCreated = (payload: any) => {
+      if (!payload) return;
+      const raw = payload.room || payload;
+      if (raw && (raw.id || raw.ID)) {
+        addRoom(normalizeRoom(raw));
+      }
+    };
+
+    const handleRoomUpdated = (payload: any) => {
+      if (!payload) return;
+      const roomId = payload.roomId || payload.room_id || payload.id || payload.ID;
+      if (!roomId) return;
+      const updates: Partial<VoiceRoom> = {};
+      if (payload.currentSlots !== undefined) updates.currentSlots = payload.currentSlots;
+      if (payload.current_slots !== undefined) updates.currentSlots = payload.current_slots;
+      if (payload.hasFreeSeats !== undefined) updates.hasFreeSeats = payload.hasFreeSeats;
+      if (payload.has_free_seats !== undefined) updates.hasFreeSeats = payload.has_free_seats;
+      if (payload.status !== undefined) updates.status = payload.status;
+      if (payload.participants !== undefined) updates.participants = payload.participants;
+      updateRoom(roomId, updates);
+    };
+
+    const handleRoomDeleted = (payload: any) => {
+      if (!payload) return;
+      const roomId = payload.roomId || payload.room_id || payload.id || payload.ID;
+      if (roomId) {
+        removeRoom(roomId);
+      }
+    };
+
+    socket.on("presence:update", handlePresenceUpdate);
+    socket.on("lobby:room-created", handleRoomCreated);
+    socket.on("lobby:room-updated", handleRoomUpdated);
+    socket.on("lobby:room-deleted", handleRoomDeleted);
+
+    return () => {
+      socket.off("presence:update", handlePresenceUpdate);
+      socket.off("lobby:room-created", handleRoomCreated);
+      socket.off("lobby:room-updated", handleRoomUpdated);
+      socket.off("lobby:room-deleted", handleRoomDeleted);
+      socketService.leaveLobby();
+    };
+  }, [setLiveStats, addRoom, updateRoom, removeRoom]);
 
   // Guaranteed flat array of VoiceRoom items for filtering
   const roomsList = useMemo<VoiceRoom[]>(() => {

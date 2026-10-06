@@ -52,13 +52,35 @@ export function LobbyView() {
           <div className="flex items-center gap-3 text-[#94a3b8] text-xs sm:text-sm flex-wrap">
             <span className="flex items-center gap-1.5 font-semibold text-[#dde3ed]">
               <Users className="w-4 h-4 text-[#22c55e]" />
-              {liveStats.onlineCount.toLocaleString()}{" "}
+              <AnimatePresence mode="wait">
+                <motion.span
+                  key={liveStats.onlineCount}
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 4 }}
+                  transition={{ duration: 0.2 }}
+                  className="inline-block"
+                >
+                  {liveStats.onlineCount.toLocaleString()}
+                </motion.span>
+              </AnimatePresence>{" "}
               <span className="font-normal text-[#94a3b8]">online learners</span>
             </span>
             <span className="opacity-40">•</span>
             <span className="flex items-center gap-1.5 font-semibold text-[#dde3ed]">
               <Disc3 className="w-4 h-4 text-[#22c55e]" />
-              {liveStats.activeRoomsCount}{" "}
+              <AnimatePresence mode="wait">
+                <motion.span
+                  key={liveStats.activeRoomsCount}
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 4 }}
+                  transition={{ duration: 0.2 }}
+                  className="inline-block"
+                >
+                  {liveStats.activeRoomsCount}
+                </motion.span>
+              </AnimatePresence>{" "}
               <span className="font-normal text-[#94a3b8]">active voice rooms</span>
             </span>
             <span className="opacity-40">•</span>
@@ -66,7 +88,18 @@ export function LobbyView() {
               <span className="material-symbols-outlined text-[#22c55e] text-base leading-none">
                 translate
               </span>
-              {liveStats.liveLanguagesCount}{" "}
+              <AnimatePresence mode="wait">
+                <motion.span
+                  key={liveStats.liveLanguagesCount}
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 4 }}
+                  transition={{ duration: 0.2 }}
+                  className="inline-block"
+                >
+                  {liveStats.liveLanguagesCount}
+                </motion.span>
+              </AnimatePresence>{" "}
               <span className="font-normal text-[#94a3b8]">live languages</span>
             </span>
           </div>
@@ -238,101 +271,113 @@ export function LobbyView() {
         </motion.div>
       ) : (
         <StaggerContainer className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 w-full">
-          {rooms.map((room) => {
-            const isFull = room.participants.length >= room.maxSlots;
+          <AnimatePresence mode="popLayout">
+            {rooms.map((room) => {
+              const participantCount = Math.max(
+                room.currentSlots || 0,
+                room.participants?.length || 0
+              );
+              const isFull = participantCount >= room.maxSlots;
 
-            return (
-              <StaggerItem key={room.id}>
-                <MotionCard
-                  enableHoverEffect={true}
-                  className="flex flex-col justify-between h-full"
+              return (
+                <StaggerItem
+                  key={room.id}
+                  layout
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
                 >
-                  {/* Top Bar: Language & Topic Tag */}
-                  <div className="flex flex-col gap-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-base">{room.flag}</span>
-                        <span className="font-bold text-sm text-[#dde3ed]">{room.language}</span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#242a32] text-[#22c55e] border border-[#2a3340]">
-                          {room.levelLabel}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-1 text-[11px] text-[#94a3b8] font-mono">
-                        <span className="material-symbols-outlined text-xs text-[#22c55e]">timer</span>
-                        <span>{room.activeSinceMinutes}m live</span>
-                      </div>
-                    </div>
-
-                    {/* Room Title */}
-                    <h3 className="font-bold text-fluid-section text-[#dde3ed] group-hover:text-[#4be277] transition-colors line-clamp-2 leading-snug">
-                      {room.title}
-                    </h3>
-
-                    {/* Topic Badge */}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {room.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="text-xs px-2.5 py-0.5 rounded-md bg-[#242a32]/70 text-[#94a3b8] border border-[#2a3340]"
-                        >
-                          #{tag}
-                        </span>
-                      ))}
-                      {room.hasNativeSpeaker && (
-                        <span className="flex items-center gap-1 text-[10px] font-semibold text-[#4be277]">
-                          <ShieldCheck className="w-3.5 h-3.5" />
-                          Native host
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Participants Matrix in Card */}
-                  <div className="my-5 pt-4 border-t border-[#2a3340]/60 flex items-center justify-between">
-                    <div className="flex items-center -space-x-2.5">
-                      {room.participants.map((participant) => (
-                        <div
-                          key={participant.id}
-                          className="relative group/avatar"
-                          title={`${participant.name} (${participant.location || ""}) - ${participant.cefrPortfolio?.[room.language] || "Learner"}`}
-                        >
-                          {/* Animated concentric ripple when speaking */}
-                          {participant.isSpeaking && (
-                            <SpeakingRipple size={40} isActive={true} />
-                          )}
-
-                          <div
-                            className={`w-10 h-10 rounded-full p-0.5 border-2 transition-all ${participant.isSpeaking
-                                ? "border-[#22c55e] shadow-[0_0_12px_rgba(34,197,94,0.5)]"
-                                : "border-[#161c23]"
-                              }`}
-                          >
-                            <img
-                              src={
-                                participant.avatarUrl ||
-                                "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
-                              }
-                              alt={participant.name}
-                              className="w-full h-full rounded-full object-cover"
-                            />
-                          </div>
-                          {participant.isSpeaking && (
-                            <span className="absolute -bottom-1 -right-0.5 w-4 h-4 rounded-full bg-[#22c55e] text-[#003915] flex items-center justify-center text-[10px] shadow-sm">
-                              <span className="material-symbols-outlined text-[10px]">mic</span>
-                            </span>
-                          )}
-                          {participant.isMuted && !participant.isSpeaking && (
-                            <span className="absolute -bottom-1 -right-0.5 w-4 h-4 rounded-full bg-[#ef4444] text-white flex items-center justify-center text-[10px] shadow-sm">
-                              <span className="material-symbols-outlined text-[10px]">mic_off</span>
-                            </span>
-                          )}
+                  <MotionCard
+                    enableHoverEffect={true}
+                    className="flex flex-col justify-between h-full"
+                  >
+                    {/* Top Bar: Language & Topic Tag */}
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-base">{room.flag}</span>
+                          <span className="font-bold text-sm text-[#dde3ed]">{room.language}</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#242a32] text-[#22c55e] border border-[#2a3340]">
+                            {room.levelLabel}
+                          </span>
                         </div>
-                      ))}
 
-                      {/* Empty Slots visual */}
-                      {Array.from({ length: Math.max(0, room.maxSlots - room.participants.length) }).map(
-                        (_, idx) => (
+                        <div className="flex items-center gap-1 text-[11px] text-[#94a3b8] font-mono">
+                          <span className="material-symbols-outlined text-xs text-[#22c55e]">timer</span>
+                          <span>{room.activeSinceMinutes}m live</span>
+                        </div>
+                      </div>
+
+                      {/* Room Title */}
+                      <h3 className="font-bold text-fluid-section text-[#dde3ed] group-hover:text-[#4be277] transition-colors line-clamp-2 leading-snug">
+                        {room.title}
+                      </h3>
+
+                      {/* Topic Badge */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {room.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="text-xs px-2.5 py-0.5 rounded-md bg-[#242a32]/70 text-[#94a3b8] border border-[#2a3340]"
+                          >
+                            #{tag}
+                          </span>
+                        ))}
+                        {room.hasNativeSpeaker && (
+                          <span className="flex items-center gap-1 text-[10px] font-semibold text-[#4be277]">
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            Native host
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Participants Matrix in Card */}
+                    <div className="my-5 pt-4 border-t border-[#2a3340]/60 flex items-center justify-between">
+                      <div className="flex items-center -space-x-2.5">
+                        {room.participants.map((participant) => (
+                          <div
+                            key={participant.id}
+                            className="relative group/avatar"
+                            title={`${participant.name} (${participant.location || ""}) - ${participant.cefrPortfolio?.[room.language] || "Learner"}`}
+                          >
+                            {/* Animated concentric ripple when speaking */}
+                            {participant.isSpeaking && (
+                              <SpeakingRipple size={40} isActive={true} />
+                            )}
+
+                            <div
+                              className={`w-10 h-10 rounded-full p-0.5 border-2 transition-all ${participant.isSpeaking
+                                  ? "border-[#22c55e] shadow-[0_0_12px_rgba(34,197,94,0.5)]"
+                                  : "border-[#161c23]"
+                                }`}
+                            >
+                              <img
+                                src={
+                                  participant.avatarUrl ||
+                                  "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
+                                }
+                                alt={participant.name}
+                                className="w-full h-full rounded-full object-cover"
+                              />
+                            </div>
+                            {participant.isSpeaking && (
+                              <span className="absolute -bottom-1 -right-0.5 w-4 h-4 rounded-full bg-[#22c55e] text-[#003915] flex items-center justify-center text-[10px] shadow-sm">
+                                <span className="material-symbols-outlined text-[10px]">mic</span>
+                              </span>
+                            )}
+                            {participant.isMuted && !participant.isSpeaking && (
+                              <span className="absolute -bottom-1 -right-0.5 w-4 h-4 rounded-full bg-[#ef4444] text-white flex items-center justify-center text-[10px] shadow-sm">
+                                <span className="material-symbols-outlined text-[10px]">mic_off</span>
+                              </span>
+                            )}
+                          </div>
+                        ))}
+
+                        {/* Empty Slots visual */}
+                        {Array.from({
+                          length: Math.max(0, room.maxSlots - participantCount),
+                        }).map((_, idx) => (
                           <div
                             key={`empty-${idx}`}
                             className="w-10 h-10 rounded-full border-2 border-dashed border-[#2a3340] bg-[#1a2027]/40 flex items-center justify-center text-[#94a3b8] text-xs"
@@ -340,40 +385,40 @@ export function LobbyView() {
                           >
                             <span className="material-symbols-outlined text-sm opacity-40">person_add</span>
                           </div>
-                        )
+                        ))}
+                      </div>
+
+                      {/* Active Speaker wave */}
+                      {room.participants.some((p) => p.isSpeaking) && (
+                        <TacticalEqualizer isActive={true} barCount={4} size="sm" />
                       )}
                     </div>
 
-                    {/* Active Speaker wave */}
-                    {room.participants.some((p) => p.isSpeaking) && (
-                      <TacticalEqualizer isActive={true} barCount={4} size="sm" />
-                    )}
-                  </div>
+                    {/* Card Footer: Slot count + Join Room Button */}
+                    <div className="flex items-center justify-between pt-2">
+                      <div className="flex items-center gap-1.5 text-xs text-[#94a3b8]">
+                        <Users className="w-4 h-4 text-[#22c55e]" />
+                        <span className="font-semibold text-[#dde3ed]">
+                          {participantCount} / {room.maxSlots}
+                        </span>
+                        <span>slots</span>
+                      </div>
 
-                  {/* Card Footer: Slot count + Join Room Button */}
-                  <div className="flex items-center justify-between pt-2">
-                    <div className="flex items-center gap-1.5 text-xs text-[#94a3b8]">
-                      <Users className="w-4 h-4 text-[#22c55e]" />
-                      <span className="font-semibold text-[#dde3ed]">
-                        {room.participants.length} / {room.maxSlots}
-                      </span>
-                      <span>slots</span>
+                      <MotionButton
+                        disabled={isFull}
+                        onClick={() => joinRoom(room)}
+                        variant={isFull ? "secondary" : "primary"}
+                        size="sm"
+                      >
+                        <span>{isFull ? "Room Full" : "Join Room"}</span>
+                        <span className="material-symbols-outlined text-base">login</span>
+                      </MotionButton>
                     </div>
-
-                    <MotionButton
-                      disabled={isFull}
-                      onClick={() => joinRoom(room)}
-                      variant={isFull ? "secondary" : "primary"}
-                      size="sm"
-                    >
-                      <span>{isFull ? "Room Full" : "Join Room"}</span>
-                      <span className="material-symbols-outlined text-base">login</span>
-                    </MotionButton>
-                  </div>
-                </MotionCard>
-              </StaggerItem>
-            );
-          })}
+                  </MotionCard>
+                </StaggerItem>
+              );
+            })}
+          </AnimatePresence>
         </StaggerContainer>
       )}
     </div>
