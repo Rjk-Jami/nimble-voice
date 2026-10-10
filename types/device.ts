@@ -12,3 +12,4 @@ export interface AudioDeviceSettings {
   echoCancellation: boolean;
   autoGainControl: boolean;
 }
+// friday
