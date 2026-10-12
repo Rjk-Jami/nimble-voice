@@ -26,6 +26,7 @@
 ## 1. Architecture & System Flow
 
 NimbleVoice operates as a hybrid architecture:
+
 - **REST / Server Actions**: Handles room catalog queries, persistence, room creation, authentication sessions, and user profiles.
 - **WebSocket (Socket.io)**: Handles real-time signaling (SDP offer/answer, ICE candidates), room presence (peer join/leave), dynamic speaker amplitude broadcasting, and backchannel chat messages.
 - **Peer-to-Peer Mesh (WebRTC)**: Delivers full-duplex Opus audio directly between browser participants without media routing through the server for low latency and zero media bandwidth costs.
@@ -207,9 +208,11 @@ model Report {
 ### 3.1. Authentication & Users
 
 #### `GET /api/auth/session`
+
 - **Description**: Returns current authenticated user session or guest profile.
 - **Headers**: `Authorization: Bearer <token>` (or cookie session).
 - **Response `200 OK`**:
+
 ```json
 {
   "user": {
@@ -235,14 +238,18 @@ model Report {
 ```
 
 #### `POST /api/auth/guest`
+
 - **Description**: Creates or restores zero-friction anonymous guest token.
 - **Request Body**:
+
 ```json
 {
   "name": "Guest Learner (Optional)"
 }
 ```
+
 - **Response `200 OK`**:
+
 ```json
 {
   "token": "eyJhbGciOiJIUzI1NiIs...",
@@ -259,8 +266,10 @@ model Report {
 ```
 
 #### `PATCH /api/users/portfolio`
+
 - **Description**: Updates user language proficiencies and settings.
 - **Request Body**:
+
 ```json
 {
   "nativeLanguage": "English",
@@ -269,6 +278,7 @@ model Report {
   "location": "San Francisco, CA"
 }
 ```
+
 - **Response `200 OK`**: Updated user object.
 
 ---
@@ -276,6 +286,7 @@ model Report {
 ### 3.2. Rooms & Directory
 
 #### `GET /api/rooms`
+
 - **Description**: Lists active voice rooms with filtering and pagination.
 - **Query Parameters**:
   - `lang`: e.g. `English`, `Spanish`, `all` (default `all`)
@@ -284,6 +295,7 @@ model Report {
   - `page`: default `1`
   - `limit`: default `20`
 - **Response `200 OK`**:
+
 ```json
 {
   "rooms": [
@@ -330,8 +342,10 @@ model Report {
 ```
 
 #### `POST /api/rooms`
+
 - **Description**: Creates a new room and sets creator as host.
 - **Request Body** (Validated by `createRoomSchema`):
+
 ```json
 {
   "title": "Japanese Anime & Everyday Slang",
@@ -342,14 +356,18 @@ model Report {
   "isBeginnerFriendly": true
 }
 ```
+
 - **Response `201 Created`**: Returns newly created `VoiceRoom` object.
 
 #### `GET /api/rooms/:id`
+
 - **Description**: Returns detailed room state, participant list, and recent chat history.
 
 #### `POST /api/rooms/:id/join`
+
 - **Description**: Verifies slot availability, registers participant, and returns WebRTC signaling token.
 - **Response `200 OK`**:
+
 ```json
 {
   "success": true,
@@ -357,9 +375,11 @@ model Report {
   "peerToken": "sig_tok_xyz"
 }
 ```
+
 - **Error `409 Conflict`**: Room is full (`currentSlots >= maxSlots`).
 
 #### `POST /api/rooms/:id/leave`
+
 - **Description**: Marks participant as left; if host leaves and room is empty, marks room as `ENDED`.
 
 ---
@@ -367,19 +387,23 @@ model Report {
 ### 3.3. Messages & In-Room Chat
 
 #### `GET /api/rooms/:id/messages`
+
 - **Description**: Retrieves recent messages for room backchannel.
 - **Query**: `limit=50&before=<messageId>`
 - **Response `200 OK`**: Array of `ChatMessage` objects.
 
 #### `POST /api/rooms/:id/messages`
+
 - **Description**: Persists backchannel chat message (also broadcasted via Socket.io).
 - **Request Body**:
+
 ```json
 {
   "content": "A blessing in disguise 🎯",
   "type": "IDIOM"
 }
 ```
+
 - **Response `201 Created`**: Stored `ChatMessage` record.
 
 ---
@@ -387,16 +411,26 @@ model Report {
 ### 3.4. Topics & Conversation Starters
 
 #### `GET /api/topics/prompts`
+
 - **Description**: Returns prompt decks organized by category.
 - **Response `200 OK`**:
+
 ```json
 [
   {
     "category": "Daily Life & Icebreakers",
     "icon": "coffee",
     "prompts": [
-      { "title": "What is the strangest food you have ever tasted?", "level": "Any", "tag": "Food" },
-      { "title": "If you could live in any city for a year, where?", "level": "A2-B1", "tag": "Travel" }
+      {
+        "title": "What is the strangest food you have ever tasted?",
+        "level": "Any",
+        "tag": "Food"
+      },
+      {
+        "title": "If you could live in any city for a year, where?",
+        "level": "A2-B1",
+        "tag": "Travel"
+      }
     ]
   }
 ]
@@ -407,8 +441,10 @@ model Report {
 ### 3.5. Network Telemetry
 
 #### `GET /api/stats/network`
+
 - **Description**: Returns platform-wide real-time network counters.
 - **Response `200 OK`**:
+
 ```json
 {
   "onlineCount": 1429,
@@ -424,43 +460,46 @@ model Report {
 The signaling server coordinates peer discovery, SDP exchanges, and presence.
 
 ### Connection Handshake
+
 ```ts
 const socket = io("wss://api.nimblevoice.com", {
   auth: {
     token: "jwt_or_guest_token",
-    userId: "usr_123"
-  }
+    userId: "usr_123",
+  },
 });
 ```
 
 ### Event Contracts Table
 
-| Event Name | Direction | Payload | Description |
-| :--- | :---: | :--- | :--- |
-| `room:join` | Client ➔ Server | `{ roomId: string }` | Client joins signaling room |
-| `room:user-joined` | Server ➔ Client | `{ userId, socketId, user: Participant }` | Informs peers to initiate WebRTC offer |
-| `webrtc:offer` | Client ⇄ Server | `{ targetSocketId, sdp: RTCSessionDescriptionInit }` | Relays SDP offer to target peer |
-| `webrtc:answer` | Client ⇄ Server | `{ targetSocketId, sdp: RTCSessionDescriptionInit }` | Relays SDP answer to caller peer |
-| `webrtc:ice-candidate` | Client ⇄ Server | `{ targetSocketId, candidate: RTCIceCandidateInit }` | Exchanges trickle ICE candidates |
-| `voice:speaking` | Client ➔ Server | `{ roomId, isSpeaking: boolean, level: number }` | Broadcasts speaking halo & volume |
-| `voice:speaking-changed` | Server ➔ Client | `{ userId, isSpeaking, level }` | Updates speaking amplitude map |
-| `voice:state-toggle` | Client ➔ Server | `{ roomId, isMuted?, isDeafened?, handRaised? }` | Toggles tactical voice status |
-| `voice:state-updated` | Server ➔ Client | `{ userId, isMuted, isDeafened, handRaised }` | Syncs peer badges across all clients |
-| `chat:send` | Client ➔ Server | `{ roomId, content, type: MessageType }` | In-room text or reaction emission |
-| `chat:new-message` | Server ➔ Client | `ChatMessage` | Broadcasts message to all room peers |
-| `room:user-left` | Server ➔ Client | `{ userId, socketId }` | Triggers peer connection close & cleanup |
-| `host:kick-user` | Client ➔ Server | `{ roomId, targetUserId }` | Host removes toxic participant |
-| `room:kicked` | Server ➔ Client | `{ reason: string }` | Forces target peer to disconnect & leave |
+| Event Name               |    Direction    | Payload                                              | Description                              |
+| :----------------------- | :-------------: | :--------------------------------------------------- | :--------------------------------------- |
+| `room:join`              | Client ➔ Server | `{ roomId: string }`                                 | Client joins signaling room              |
+| `room:user-joined`       | Server ➔ Client | `{ userId, socketId, user: Participant }`            | Informs peers to initiate WebRTC offer   |
+| `webrtc:offer`           | Client ⇄ Server | `{ targetSocketId, sdp: RTCSessionDescriptionInit }` | Relays SDP offer to target peer          |
+| `webrtc:answer`          | Client ⇄ Server | `{ targetSocketId, sdp: RTCSessionDescriptionInit }` | Relays SDP answer to caller peer         |
+| `webrtc:ice-candidate`   | Client ⇄ Server | `{ targetSocketId, candidate: RTCIceCandidateInit }` | Exchanges trickle ICE candidates         |
+| `voice:speaking`         | Client ➔ Server | `{ roomId, isSpeaking: boolean, level: number }`     | Broadcasts speaking halo & volume        |
+| `voice:speaking-changed` | Server ➔ Client | `{ userId, isSpeaking, level }`                      | Updates speaking amplitude map           |
+| `voice:state-toggle`     | Client ➔ Server | `{ roomId, isMuted?, isDeafened?, handRaised? }`     | Toggles tactical voice status            |
+| `voice:state-updated`    | Server ➔ Client | `{ userId, isMuted, isDeafened, handRaised }`        | Syncs peer badges across all clients     |
+| `chat:send`              | Client ➔ Server | `{ roomId, content, type: MessageType }`             | In-room text or reaction emission        |
+| `chat:new-message`       | Server ➔ Client | `ChatMessage`                                        | Broadcasts message to all room peers     |
+| `room:user-left`         | Server ➔ Client | `{ userId, socketId }`                               | Triggers peer connection close & cleanup |
+| `host:kick-user`         | Client ➔ Server | `{ roomId, targetUserId }`                           | Host removes toxic participant           |
+| `room:kicked`            | Server ➔ Client | `{ reason: string }`                                 | Forces target peer to disconnect & leave |
 
 ---
 
 ## 5. WebRTC Mesh & ICE/TURN Configuration
 
 ### WebRTC Connection Matrix
+
 In a mesh topology, each participant maintains an `RTCPeerConnection` with every other participant in the room:
 $$\text{Connections per room} = \frac{N(N - 1)}{2} \quad (\text{where } N \le 8)$$
 
 ### ICE Servers Configuration
+
 ```ts
 export const WEBRTC_ICE_SERVERS: RTCConfiguration = {
   iceServers: [
@@ -480,7 +519,9 @@ export const WEBRTC_ICE_SERVERS: RTCConfiguration = {
 ```
 
 ### Opus Audio Codec Parameters
+
 Enforce optimal voice parameters in the SDP:
+
 ```
 a=fmtp:111 minptime=10;useinbandfec=1;maxaveragebitrate=64000;stereo=1
 ```
@@ -500,6 +541,7 @@ a=fmtp:111 minptime=10;useinbandfec=1;maxaveragebitrate=64000;stereo=1
 ## 7. Implementation Blueprint
 
 To generate this backend:
+
 1. **Initialize Database**:
    ```bash
    npm install prisma @prisma/client
@@ -518,3 +560,31 @@ To generate this backend:
    - `app/api/rooms/[roomId]/messages/route.ts` (GET / POST chat)
    - `app/api/users/portfolio/route.ts` (PATCH user portfolio)
    - `server/socket-server.ts` (Socket.io standalone or Next.js custom server)
+
+---
+
+## 2. Complete REST API Catalog (All 19 Endpoints)
+
+| #      | Group  |  Method  | Endpoint Path             |  Auth Required  | Purpose                                                     |
+| ------ | ------ | :------: | ------------------------- | :-------------: | ----------------------------------------------------------- |
+| **1**  | Auth   |  `POST`  | `/api/auth/guest`         |       No        | Create anonymous guest session & token                      |
+| **2**  | Auth   |  `GET`   | `/api/auth/session`       | Bearer / Cookie | Read active user session                                    |
+| **3**  | Auth   |  `GET`   | `/api/auth/profile`       |     Bearer      | Extended profile + room stats                               |
+| **4**  | Auth   |  `POST`  | `/api/auth/register`      |       No        | Email + password registration                               |
+| **5**  | Auth   |  `POST`  | `/api/auth/login`         |       No        | Email + password login                                      |
+| **6**  | Rooms  |  `GET`   | `/api/rooms`              |       No        | Filter & list live rooms (query, lang, filter, page, limit) |
+| **7**  | Rooms  |  `POST`  | `/api/rooms`              |     Bearer      | Create voice room & enroll host                             |
+| **8**  | Rooms  |  `GET`   | `/api/rooms/:id`          |       No        | Single room details + active roster                         |
+| **9**  | Rooms  | `PATCH`  | `/api/rooms/:id`          |  Bearer (Host)  | Update title, topic, maxSlots, status                       |
+| **10** | Rooms  | `DELETE` | `/api/rooms/:id`          |  Bearer (Host)  | Close room & disconnect members                             |
+| **11** | Rooms  |  `POST`  | `/api/rooms/:id/join`     |     Bearer      | ACID slot allocation & peer token                           |
+| **12** | Rooms  |  `POST`  | `/api/rooms/:id/leave`    |     Bearer      | Release slot & update room state                            |
+| **13** | Chat   |  `GET`   | `/api/rooms/:id/messages` |       No        | In-room backchannel messages                                |
+| **14** | Chat   |  `POST`  | `/api/rooms/:id/messages` |     Bearer      | Post message (triggers socket broadcast)                    |
+| **15** | Users  |  `GET`   | `/api/users/:userId`      |       No        | Public learner card & CEFR stats                            |
+| **16** | Users  | `PATCH`  | `/api/users/portfolio`    |     Bearer      | Update language levels & location                           |
+| **17** | Users  |  `GET`   | `/api/users/stats`        |     Bearer      | Telemetry: hours spoken, streak, karma                      |
+| **18** | Topics |  `GET`   | `/api/topics/prompts`     |       No        | Icebreakers & conversation starter decks                    |
+| **19** | Stats  |  `GET`   | `/api/stats/network`      |       No        | Platform active learners & room counts                      |
+
+---
