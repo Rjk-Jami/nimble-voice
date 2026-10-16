@@ -246,12 +246,13 @@ export class WebRTCMeshManager {
   }
 
   private setupSocketSignaling(socket: any): void {
-    // 1. Existing peers in room: prepare connection and attach local tracks, wait for existing peer to offer
+    // 1. Existing peers in room: prepare connection and initiate offer to each
     socket.off("room:existing-peers");
     socket.on("room:existing-peers", async ({ peers }: { peers: Array<{ socketId: string; userId: string; user: any }> }) => {
       console.log(`[WebRTC] Received ${peers.length} existing peers:`, peers);
       for (const peer of peers) {
         this.getOrCreatePeerConnection(peer.socketId, peer.userId);
+        await this.createOfferToPeer(peer.socketId, peer.userId);
       }
     });
 
@@ -462,6 +463,13 @@ export class WebRTCMeshManager {
     try {
       const pc = this.getOrCreatePeerConnection(targetSocketId, userId);
 
+      // Re-entrancy guard: defer if already making an offer
+      if (this.makingOffer.get(targetSocketId)) {
+        console.warn(`[WebRTC] Already making offer to ${targetSocketId}, queueing pending renegotiation`);
+        this.pendingRenegotiation.set(targetSocketId, true);
+        return;
+      }
+
       // WebRTC: Only create offer if in stable state
       if (pc.signalingState !== "stable") {
         console.warn(
@@ -476,6 +484,7 @@ export class WebRTCMeshManager {
       const offer = await pc.createOffer(isRestartIce ? { iceRestart: true } : undefined);
 
       if (pc.signalingState !== "stable") {
+        console.warn(`[WebRTC] Aborting setLocalDescription(offer) to ${targetSocketId}: state transitioned to '${pc.signalingState}'`);
         return;
       }
 
@@ -539,6 +548,8 @@ export class WebRTCMeshManager {
           targetSocketId: senderSocketId,
           sdp: answer,
         });
+      } else {
+        console.warn(`[WebRTC] Skipping answer creation: signalingState is '${pc.signalingState}', expected 'have-remote-offer'`);
       }
     } catch (err) {
       console.error(`[WebRTC] Failed to handle offer from ${senderSocketId}:`, err);
