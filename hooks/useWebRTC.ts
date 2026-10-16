@@ -85,6 +85,20 @@ export function useWebRTC(roomId?: string) {
           removeParticipant(peerUserId);
         };
 
+        // Remote peer voice speaking detector callback (real-time Web Audio API recognition)
+        webrtcMeshManager.onPeerSpeaking = (socketId, peerUserId, speaking, volume) => {
+          if (!mounted) return;
+          if (peerUserId) {
+            setSpeaking(peerUserId, speaking);
+            setAudioLevel(peerUserId, volume);
+            updateParticipant(peerUserId, { isSpeaking: speaking, audioLevel: volume });
+          }
+          if (socketId) {
+            setSpeaking(socketId, speaking);
+            setAudioLevel(socketId, volume);
+          }
+        };
+
         // Socket: Existing peers in room with full voiceState (received by joiner)
         socket.on("room:existing-peers", ({ peers }: { peers: Array<{ socketId: string; userId: string; user: any; voiceState?: any }> }) => {
           if (!mounted || !Array.isArray(peers)) return;
@@ -264,7 +278,7 @@ export function useWebRTC(roomId?: string) {
         setSpeaking(user.id, false);
         setAudioLevel(user.id, 0);
         updateParticipant(user.id, { isSpeaking: false, audioLevel: 0 });
-        socketService.sendSpeaking(roomId, false, 0);
+        socketService.sendSpeaking(roomId, false, 0, user.id);
       }
       return;
     }
@@ -303,7 +317,7 @@ export function useWebRTC(roomId?: string) {
         if (speakingNow !== lastSpeakingStateRef.current) {
           lastSpeakingStateRef.current = speakingNow;
           setSpeaking(user.id, speakingNow);
-          socketService.sendSpeaking(roomId, speakingNow, normalizedVolume);
+          socketService.sendSpeaking(roomId, speakingNow, normalizedVolume, user.id);
           updateParticipant(user.id, { isSpeaking: speakingNow, audioLevel: normalizedVolume });
         }
       }, 60);

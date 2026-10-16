@@ -139,9 +139,16 @@ class SocketService {
     }
   }
 
-  public sendSpeaking(roomId: string, isSpeaking: boolean, level: number): void {
+  public sendSpeaking(roomId: string, isSpeaking: boolean, level: number, userId?: string): void {
     if (this.socket?.connected) {
-      this.socket.emit("voice:speaking", { roomId, isSpeaking, level });
+      this.socket.emit("voice:speaking", {
+        roomId,
+        isSpeaking,
+        is_speaking: isSpeaking,
+        speaking: isSpeaking,
+        level,
+        userId: userId || "",
+      });
     }
   }
 
@@ -219,11 +226,17 @@ class SocketService {
     if (!this.socket?.connected) return 24;
     return new Promise((resolve) => {
       const start = Date.now();
-      this.socket?.emit("mesh:ping", start, () => {
+      const onPong = () => {
+        this.socket?.off("mesh:pong", onPong);
         const rtt = Date.now() - start;
         resolve(Math.max(8, rtt));
-      });
-      setTimeout(() => resolve(28), 1000);
+      };
+      this.socket?.once("mesh:pong", onPong);
+      this.socket?.emit("mesh:ping", { timestamp: start });
+      setTimeout(() => {
+        this.socket?.off("mesh:pong", onPong);
+        resolve(28);
+      }, 1000);
     });
   }
 }

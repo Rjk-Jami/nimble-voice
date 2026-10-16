@@ -75,6 +75,8 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
     handRaised,
     networkLatency,
     formattedDuration,
+    speakingMap,
+    audioLevels,
     localStream,
     remoteScreenStream,
     isSocketConnected,
@@ -507,7 +509,13 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
               <div className="relative rounded-lg sm:rounded-xl overflow-hidden bg-black aspect-video max-h-[460px] flex items-center justify-center border border-[#2a3340]">
                 {screenStream ? (
                   <video
-                    ref={screenVideoRef}
+                    ref={(el) => {
+                      (screenVideoRef as any).current = el;
+                      if (el && screenStream && el.srcObject !== screenStream) {
+                        el.srcObject = screenStream;
+                        el.play().catch(() => {});
+                      }
+                    }}
                     autoPlay
                     playsInline
                     muted
@@ -515,7 +523,13 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
                   />
                 ) : remoteScreenStream ? (
                   <video
-                    ref={remoteScreenVideoRef}
+                    ref={(el) => {
+                      (remoteScreenVideoRef as any).current = el;
+                      if (el && remoteScreenStream.stream && el.srcObject !== remoteScreenStream.stream) {
+                        el.srcObject = remoteScreenStream.stream;
+                        el.play().catch(() => {});
+                      }
+                    }}
                     autoPlay
                     playsInline
                     className="w-full h-full object-contain"
@@ -557,8 +571,11 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3.5 w-full">
             {participantsList.map((p) => {
               const isCurrentUser = p.id === user?.id;
-              const speakerActive =
-                (p.isSpeaking || (isCurrentUser && !isMuted && isSpeaking)) && !p.isMuted;
+              const isSpeakingNow =
+                (isCurrentUser && !isMuted && isSpeaking) ||
+                Boolean(p.isSpeaking) ||
+                Boolean(speakingMap?.[p.id]);
+              const speakerActive = isSpeakingNow && !p.isMuted;
 
               return (
                 <motion.div
