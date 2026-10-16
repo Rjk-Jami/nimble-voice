@@ -4,7 +4,7 @@ import React from "react";
 import { useRooms } from "@/hooks";
 import { useUIStore, useVoiceStore } from "@/stores";
 import { Language, LANGUAGE_FLAGS } from "@/enums";
-import { Search, PlusCircle, Headphones, X, Users, Disc3, ShieldCheck } from "lucide-react";
+import { Search, PlusCircle, X, Users, Disc3, ShieldCheck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MotionButton } from "./motion/MotionButton";
 import { TabGlider } from "./motion/TabGlider";
@@ -115,17 +115,6 @@ export function LobbyView() {
             <PlusCircle className="w-4 h-4" />
             <span>Create New Room</span>
           </MotionButton>
-
-          {rooms.length > 0 && (
-            <MotionButton
-              variant="secondary"
-              size="sm"
-              onClick={() => joinRoom(rooms[0])}
-            >
-              <Headphones className="w-4 h-4 text-[#22c55e]" />
-              <span className="hidden sm:inline">Active Call Preview</span>
-            </MotionButton>
-          )}
         </div>
       </motion.div>
 

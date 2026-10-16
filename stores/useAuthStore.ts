@@ -57,13 +57,18 @@ export const useAuthStore = create<AuthState>((set) => ({
         return;
       }
 
-      // Generate clean unique guest learner session for this tab/window
-      const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+      // Generate clean unique guest learner session for this tab/window (userYYYYMMDDNNN)
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, "0");
+      const dd = String(now.getDate()).padStart(2, "0");
+      const randomSeq = Math.floor(100 + Math.random() * 900);
+      const guestId = `user${yyyy}${mm}${dd}${randomSeq}`;
       const guestUser: User = {
         ...DEFAULT_USER,
-        id: `guest-${randomSuffix.toLowerCase()}`,
-        name: `Guest #${randomSuffix}`,
-        avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${randomSuffix}`,
+        id: guestId,
+        name: `Guest #${randomSeq}`,
+        avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${guestId}`,
       };
       sessionStorage.setItem("nimble_voice_guest", JSON.stringify(guestUser));
       set({ user: guestUser, isAuthenticated: false, isGuest: true });
@@ -103,6 +108,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("nimble_voice_user", JSON.stringify(user));
+        sessionStorage.removeItem("nimble_voice_guest");
       } catch {}
     }
     set({ user, isAuthenticated: true, isGuest: false });
@@ -112,14 +118,21 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (typeof window !== "undefined") {
       try {
         localStorage.removeItem("nimble_voice_user");
+        sessionStorage.removeItem("nimble_voice_guest");
       } catch {}
     }
     set({ user: null, isAuthenticated: false, isGuest: false });
   },
 
   setGuestUser: (name = "Guest Learner") => {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const randomSeq = Math.floor(100 + Math.random() * 900);
+    const guestId = `user${yyyy}${mm}${dd}${randomSeq}`;
     const guestUser: User = {
-      id: `guest-${Date.now()}`,
+      id: guestId,
       name,
       nativeLanguage: "English",
       learningLanguage: "Spanish",

@@ -142,7 +142,7 @@ export function TopicsView() {
                         <span className="text-[#94a3b8] text-[11px]">#{prompt.tag}</span>
                       </div>
                       <p className="text-sm font-bold text-[#dde3ed] group-hover:text-[#4be277] transition-colors leading-snug mt-1">
-                        "{prompt.title}"
+                        &ldquo;{prompt.title}&rdquo;
                       </p>
                     </div>
 

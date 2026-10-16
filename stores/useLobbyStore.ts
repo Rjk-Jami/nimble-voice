@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { VoiceRoom } from "@/types";
-import { Language, CEFRLevel, RoomStatus } from "@/enums";
+import { Language } from "@/enums";
 
 interface LiveStats {
   onlineCount: number;
@@ -38,7 +38,7 @@ function calculateStats(rooms: VoiceRoom[], onlineCount = 0): LiveStats {
   };
 }
 
-export const useLobbyStore = create<LobbyState>((set, get) => ({
+export const useLobbyStore = create<LobbyState>((set) => ({
   rooms: INITIAL_ROOMS_DATA,
   searchQuery: "",
   selectedLanguage: Language.ALL,
