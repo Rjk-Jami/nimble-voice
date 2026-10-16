@@ -655,7 +655,8 @@ export class WebRTCMeshManager {
 
         if (speakingNow !== lastSpeaking) {
           lastSpeaking = speakingNow;
-          this.onPeerSpeaking?.(socketId, userId, speakingNow, normalizedVolume);
+          const effectiveUserId = userId || this.socketUserMap.get(socketId) || "";
+          this.onPeerSpeaking?.(socketId, effectiveUserId, speakingNow, normalizedVolume);
         }
       }, 60);
 

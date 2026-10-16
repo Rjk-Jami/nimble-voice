@@ -88,12 +88,13 @@ export function useWebRTC(roomId?: string) {
         // Remote peer voice speaking detector callback (real-time Web Audio API recognition)
         webrtcMeshManager.onPeerSpeaking = (socketId, peerUserId, speaking, volume) => {
           if (!mounted) return;
-          if (peerUserId) {
-            setSpeaking(peerUserId, speaking);
-            setAudioLevel(peerUserId, volume);
-            updateParticipant(peerUserId, { isSpeaking: speaking, audioLevel: volume });
+          const targetId = peerUserId || socketId;
+          if (targetId) {
+            setSpeaking(targetId, speaking);
+            setAudioLevel(targetId, volume);
+            updateParticipant(targetId, { isSpeaking: speaking, audioLevel: volume });
           }
-          if (socketId) {
+          if (socketId && peerUserId && socketId !== peerUserId) {
             setSpeaking(socketId, speaking);
             setAudioLevel(socketId, volume);
           }
