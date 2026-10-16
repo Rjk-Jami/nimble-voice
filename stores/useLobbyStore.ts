@@ -24,86 +24,17 @@ interface LobbyState {
   setLiveStats: (stats: Partial<LiveStats>) => void;
 }
 
-export const INITIAL_ROOMS_DATA: VoiceRoom[] = [
-  {
-    id: "room-english-lounge",
-    title: "Global English Lounge: Casual chat, culture & daily life",
-    topic: "Casual chat, culture & daily life",
-    language: Language.ENGLISH,
-    flag: "🇬🇧",
-    cefrLevel: CEFRLevel.B1,
-    levelLabel: "Intermediate B1",
-    maxSlots: 6,
-    currentSlots: 0,
-    tags: ["Casual & Life", "Culture"],
-    status: RoomStatus.LIVE,
-    startedAt: new Date().toISOString(),
-    activeSinceMinutes: 1,
-    hasFreeSeats: true,
-    isBeginnerFriendly: true,
-    hasNativeSpeaker: false,
-    isLive: true,
-    host: {
-      id: "host-community",
-      name: "Nimble Community Host",
-      avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-      location: "Global",
-      nativeLanguage: "English",
-      learningLanguage: "Spanish",
-      isVerified: true,
-      cefrPortfolio: { English: CEFRLevel.NATIVE },
-      karma: 500,
-      hoursSpoken: 120,
-      streak: 45,
-    },
-    participants: [],
-    messages: [],
-  },
-  {
-    id: "room-spanish-corner",
-    title: "Spanish Practice Corner: Saludos, viajes y vida cotidiana",
-    topic: "Saludos, viajes y vida cotidiana",
-    language: Language.SPANISH,
-    flag: "🇪🇸",
-    cefrLevel: CEFRLevel.A2,
-    levelLabel: "Beginner A2",
-    maxSlots: 5,
-    currentSlots: 0,
-    tags: ["Grammar & Vocab", "Beginners"],
-    status: RoomStatus.LIVE,
-    startedAt: new Date().toISOString(),
-    activeSinceMinutes: 1,
-    hasFreeSeats: true,
-    isBeginnerFriendly: true,
-    hasNativeSpeaker: false,
-    isLive: true,
-    host: {
-      id: "host-elena",
-      name: "Elena Moderadora",
-      avatarUrl: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80",
-      location: "Madrid, ES",
-      nativeLanguage: "Spanish",
-      learningLanguage: "English",
-      isVerified: true,
-      cefrPortfolio: { Spanish: CEFRLevel.NATIVE },
-      karma: 420,
-      hoursSpoken: 95,
-      streak: 32,
-    },
-    participants: [],
-    messages: [],
-  },
-];
+export const INITIAL_ROOMS_DATA: VoiceRoom[] = [];
 
-function calculateStats(rooms: VoiceRoom[], onlineCount = 1): LiveStats {
+function calculateStats(rooms: VoiceRoom[], onlineCount = 0): LiveStats {
   const uniqueLanguages = new Set<string>();
   rooms.forEach((r) => {
     if (r.language) uniqueLanguages.add(r.language);
   });
   return {
-    onlineCount: Math.max(1, onlineCount),
+    onlineCount: Math.max(0, onlineCount),
     activeRoomsCount: rooms.length,
-    liveLanguagesCount: Math.max(1, uniqueLanguages.size),
+    liveLanguagesCount: uniqueLanguages.size,
   };
 }
 

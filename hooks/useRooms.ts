@@ -49,7 +49,7 @@ export function useRooms() {
 
   // Sync server rooms to lobby store
   useEffect(() => {
-    if (serverRooms && Array.isArray(serverRooms) && serverRooms.length > 0) {
+    if (serverRooms && Array.isArray(serverRooms)) {
       setRooms(serverRooms);
     }
   }, [serverRooms, setRooms]);
@@ -136,16 +136,20 @@ export function useRooms() {
     };
 
     socket.on("presence:update", handlePresenceUpdate);
+    socket.on("lobby:stats-update", handlePresenceUpdate);
     socket.on("lobby:room-created", handleRoomCreated);
     socket.on("lobby:room-updated", handleRoomUpdated);
     socket.on("lobby:room-deleted", handleRoomDeleted);
+    socket.on("lobby:room-removed", handleRoomDeleted);
     socket.on("voice:speaking-changed", handleSpeakingChanged);
 
     return () => {
       socket.off("presence:update", handlePresenceUpdate);
+      socket.off("lobby:stats-update", handlePresenceUpdate);
       socket.off("lobby:room-created", handleRoomCreated);
       socket.off("lobby:room-updated", handleRoomUpdated);
       socket.off("lobby:room-deleted", handleRoomDeleted);
+      socket.off("lobby:room-removed", handleRoomDeleted);
       socket.off("voice:speaking-changed", handleSpeakingChanged);
       socketService.leaveLobby();
     };
