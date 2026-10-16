@@ -182,16 +182,6 @@ export function useWebRTC(roomId?: string) {
           updateParticipant(userId, updates);
         });
 
-        // Socket: User left room
-        socket.on("room:user-left", ({ socketId, userId: leftUserId }: { socketId: string; userId: string }) => {
-          if (!mounted) return;
-          console.log(`[useWebRTC] User left room: ${leftUserId} (${socketId})`);
-          webrtcMeshManager.closePeer(socketId, leftUserId);
-          setRemotePeers((prev) => prev.filter((p) => p.socketId !== socketId));
-          setRemoteScreenStream((prev) => (prev?.userId === leftUserId ? null : prev));
-          removeParticipant(leftUserId);
-        });
-
         // Socket: Screen share state change
         socket.on("room:screen-share-changed", ({ userId: sharerId, isSharing }: { userId: string; isSharing: boolean }) => {
           if (!mounted) return;
@@ -214,7 +204,6 @@ export function useWebRTC(roomId?: string) {
           socket.off("disconnect", onDisconnect);
           socket.off("room:existing-peers");
           socket.off("room:user-joined");
-          socket.off("room:user-left");
           socket.off("room:screen-share-changed");
           socket.off("voice:speaking-changed");
           socket.off("voice:state-updated");

@@ -722,6 +722,7 @@ export class WebRTCMeshManager {
     const socket = socketService.getSocket();
     if (socket) {
       socket.off("room:existing-peers");
+      socket.off("room:user-joined");
       socket.off("webrtc:offer");
       socket.off("webrtc:answer");
       socket.off("webrtc:ice-candidate");
@@ -780,7 +781,11 @@ export class WebRTCMeshManager {
     this.onPeerSpeaking = undefined;
 
     // 5. Notify socket server
-    socketService.leaveRoom();
+    if (this.roomId) {
+      socketService.leaveRoom(this.roomId);
+    } else {
+      socketService.leaveRoom();
+    }
     this.roomId = null;
   }
 }
