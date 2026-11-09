@@ -12,6 +12,7 @@ import { ENV } from "@/constants";
 class SocketService {
   private socket: Socket | null = null;
   private isConnecting: boolean = false;
+  private activeRoomId: string | null = null;
 
   public getSocket(): Socket {
     if (!this.socket) {
@@ -111,31 +112,36 @@ class SocketService {
   }
 
   public joinRoom(roomId: string, user: Partial<User>): void {
+    this.activeRoomId = roomId;
     const socket = this.connect();
     socket.emit("room:join", { roomId, user });
   }
 
   public leaveRoom(roomId?: string): void {
+    const leavingRoomId = roomId || this.activeRoomId;
     if (this.socket?.connected) {
-      this.socket.emit("room:leave", { roomId });
+      this.socket.emit("room:leave", { roomId: leavingRoomId });
+    }
+    if (!roomId || roomId === this.activeRoomId) {
+      this.activeRoomId = null;
     }
   }
 
   public sendOffer(payload: SignalingOfferPayload): void {
     if (this.socket?.connected) {
-      this.socket.emit("webrtc:offer", payload);
+      this.socket.emit("webrtc:offer", { ...payload, roomId: this.activeRoomId });
     }
   }
 
   public sendAnswer(payload: SignalingAnswerPayload): void {
     if (this.socket?.connected) {
-      this.socket.emit("webrtc:answer", payload);
+      this.socket.emit("webrtc:answer", { ...payload, roomId: this.activeRoomId });
     }
   }
 
   public sendIceCandidate(payload: SignalingIcePayload): void {
     if (this.socket?.connected) {
-      this.socket.emit("webrtc:ice-candidate", payload);
+      this.socket.emit("webrtc:ice-candidate", { ...payload, roomId: this.activeRoomId });
     }
   }
 
