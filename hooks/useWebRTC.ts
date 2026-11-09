@@ -25,6 +25,8 @@ export function useWebRTC(roomId?: string) {
   const [remoteScreenStream, setRemoteScreenStream] = useState<{ userId: string; stream: MediaStream } | null>(null);
   const [isSocketConnected, setIsSocketConnected] = useState<boolean>(false);
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "connecting" | "connected">("idle");
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const [audioPlaybackBlocked, setAudioPlaybackBlocked] = useState(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -44,6 +46,10 @@ export function useWebRTC(roomId?: string) {
 
         if (!mounted) return;
         const stream = webrtcMeshManager.getLocalStream();
+        if (!stream?.getAudioTracks().some((track) => track.readyState === "live")) {
+          throw new Error("No live microphone audio track is available.");
+        }
+        setMediaError(null);
         setStream(stream);
         setLocalStream(stream);
         setConnectionStatus("connected");
@@ -55,6 +61,8 @@ export function useWebRTC(roomId?: string) {
         const onDisconnect = () => setIsSocketConnected(false);
         socket.on("connect", onConnect);
         socket.on("disconnect", onDisconnect);
+
+        webrtcMeshManager.onAudioPlaybackBlocked = setAudioPlaybackBlocked;
 
         // Remote stream callback (audio)
         webrtcMeshManager.onRemoteStream = (peer) => {
@@ -101,7 +109,7 @@ export function useWebRTC(roomId?: string) {
         };
 
         // Socket: Existing peers in room with full voiceState (received by joiner)
-        socket.on("room:existing-peers", ({ peers }: { peers: Array<{ socketId: string; userId: string; user: any; voiceState?: any }> }) => {
+        const onExistingPeers = ({ peers }: { peers: Array<{ socketId: string; userId: string; user: any; voiceState?: any }> }) => {
           if (!mounted || !Array.isArray(peers)) return;
           peers.forEach(({ userId, user: peerUser, voiceState }) => {
             if (!peerUser || userId === user?.id) return;
@@ -126,10 +134,11 @@ export function useWebRTC(roomId?: string) {
             };
             addParticipant(existingParticipant);
           });
-        });
+        };
+        socket.on("room:existing-peers", onExistingPeers);
 
         // Socket: User joined room (received by existing peers)
-        socket.on("room:user-joined", ({ userId, user: newPeerUser }: { userId: string; user: any }) => {
+        const onUserJoined = ({ userId, user: newPeerUser }: { userId: string; user: any }) => {
           if (!mounted || !newPeerUser || userId === user?.id) return;
           console.log(`[useWebRTC] New user joined room: ${userId}`);
           const newParticipant: Participant = {
@@ -151,13 +160,13 @@ export function useWebRTC(roomId?: string) {
             handRaised: false,
           };
           addParticipant(newParticipant);
-        });
+        };
+        socket.on("room:user-joined", onUserJoined);
 
         // Ensure local user is represented in participants list
         if (user) {
           addParticipant({
             ...user,
-            isHost: false,
             isSpeaking: false,
             isMuted,
             isDeafened,
@@ -166,31 +175,34 @@ export function useWebRTC(roomId?: string) {
         }
 
         // Socket: Dynamic Speaking Amplitude Broadcast
-        socket.on("voice:speaking-changed", ({ userId, isSpeaking: speaking, level }: { userId: string; isSpeaking: boolean; level: number }) => {
+        const onSpeakingChanged = ({ userId, isSpeaking: speaking, level }: { userId: string; isSpeaking: boolean; level: number }) => {
           if (!mounted) return;
           setSpeaking(userId, speaking);
           setAudioLevel(userId, level);
           updateParticipant(userId, { isSpeaking: speaking, audioLevel: level });
-        });
+        };
+        socket.on("voice:speaking-changed", onSpeakingChanged);
 
         // Socket: Tactical Voice State Updates (Mute, Deafen, Hand)
-        socket.on("voice:state-updated", ({ userId, isMuted: muted, isDeafened: deafened, handRaised: raised }: { userId: string; isMuted?: boolean; isDeafened?: boolean; handRaised?: boolean }) => {
+        const onVoiceStateUpdated = ({ userId, isMuted: muted, isDeafened: deafened, handRaised: raised }: { userId: string; isMuted?: boolean; isDeafened?: boolean; handRaised?: boolean }) => {
           if (!mounted) return;
           const updates: Partial<Participant> = {};
           if (typeof muted === "boolean") updates.isMuted = muted;
           if (typeof deafened === "boolean") updates.isDeafened = deafened;
           if (typeof raised === "boolean") updates.handRaised = raised;
           updateParticipant(userId, updates);
-        });
+        };
+        socket.on("voice:state-updated", onVoiceStateUpdated);
 
         // Socket: Screen share state change
-        socket.on("room:screen-share-changed", ({ userId: sharerId, isSharing }: { userId: string; isSharing: boolean }) => {
+        const onScreenShareChanged = ({ userId: sharerId, isSharing }: { userId: string; isSharing: boolean }) => {
           if (!mounted) return;
           updateParticipant(sharerId, { isScreenSharing: isSharing });
           if (!isSharing) {
             setRemoteScreenStream((prev) => (prev?.userId === sharerId ? null : prev));
           }
-        });
+        };
+        socket.on("room:screen-share-changed", onScreenShareChanged);
 
         // Measure network mesh latency periodically
         const latencyTimer = setInterval(async () => {
@@ -203,15 +215,21 @@ export function useWebRTC(roomId?: string) {
           clearInterval(latencyTimer);
           socket.off("connect", onConnect);
           socket.off("disconnect", onDisconnect);
-          socket.off("room:existing-peers");
-          socket.off("room:user-joined");
-          socket.off("room:screen-share-changed");
-          socket.off("voice:speaking-changed");
-          socket.off("voice:state-updated");
+          socket.off("room:existing-peers", onExistingPeers);
+          socket.off("room:user-joined", onUserJoined);
+          socket.off("room:screen-share-changed", onScreenShareChanged);
+          socket.off("voice:speaking-changed", onSpeakingChanged);
+          socket.off("voice:state-updated", onVoiceStateUpdated);
         };
       } catch (err) {
         console.error("[useWebRTC] Failed to initialize WebRTC mesh:", err);
-        if (mounted) setConnectionStatus("idle");
+        if (mounted) {
+          const error = err instanceof Error ? err : new Error("Unable to initialize microphone.");
+          setMediaError(error.name === "NotAllowedError" || error.name === "PermissionDeniedError"
+            ? "Microphone permission was denied. Allow microphone access in your browser and try again."
+            : error.message);
+          setConnectionStatus("idle");
+        }
       }
     };
 
@@ -326,10 +344,6 @@ export function useWebRTC(roomId?: string) {
   const handleShareScreen = useCallback(
     async (stream: MediaStream | null) => {
       await webrtcMeshManager.shareScreen(stream);
-      if (roomId) {
-        const socket = socketService.getSocket();
-        socket.emit("room:screen-share", { roomId, isSharing: Boolean(stream) });
-      }
     },
     [roomId]
   );
@@ -344,6 +358,9 @@ export function useWebRTC(roomId?: string) {
     remoteScreenStream,
     isSocketConnected,
     connectionStatus,
+    mediaError,
+    audioPlaybackBlocked,
+    resumeRemoteAudio: () => webrtcMeshManager.resumeRemoteAudio(),
     shareScreen: handleShareScreen,
     switchAudioInput: handleSwitchAudioInput,
   };
