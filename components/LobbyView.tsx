@@ -12,6 +12,7 @@ import { StaggerContainer, StaggerItem } from "./motion/StaggerList";
 import { MotionCard } from "./motion/MotionCard";
 import { SpeakingRipple } from "./motion/SpeakingRipple";
 import { TacticalEqualizer } from "./motion/TacticalEqualizer";
+import { OnlineLearners } from "@/components/OnlineLearners";
 
 export function LobbyView() {
   const {
@@ -50,21 +51,9 @@ export function LobbyView() {
           </div>
 
           <div className="flex items-center gap-3 text-[#94a3b8] text-xs sm:text-sm flex-wrap">
-            <span className="flex items-center gap-1.5 font-semibold text-[#dde3ed]">
-              <Users className="w-4 h-4 text-[#22c55e]" />
-              <AnimatePresence mode="wait">
-                <motion.span
-                  key={liveStats.onlineCount}
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 4 }}
-                  transition={{ duration: 0.2 }}
-                  className="inline-block"
-                >
-                  {liveStats.onlineCount.toLocaleString()}
-                </motion.span>
-              </AnimatePresence>{" "}
-              <span className="font-normal text-[#94a3b8]">online learners</span>
+            <span className="flex items-center gap-1.5">
+              <Users className="w-4 h-4 text-[#22c55e]" aria-hidden="true" />
+              <OnlineLearners />
             </span>
             <span className="opacity-40">•</span>
             <span className="flex items-center gap-1.5 font-semibold text-[#dde3ed]">

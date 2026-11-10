@@ -3,12 +3,17 @@
 import { socketService } from "./socket";
 import { User } from "@/types";
 
+const turnUrls = process.env.NEXT_PUBLIC_TURN_URLS?.split(",").map((url) => url.trim()).filter(Boolean) ?? [];
+const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME;
+const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
+
 export const DEFAULT_ICE_SERVERS: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun2.l.google.com:19302" },
     { urls: "stun:stun.cloudflare.com:3478" },
+    ...(turnUrls.length && turnUsername && turnCredential
+      ? [{ urls: turnUrls, username: turnUsername, credential: turnCredential }]
+      : []),
   ],
   iceCandidatePoolSize: 4,
 };
@@ -45,6 +50,8 @@ export class WebRTCMeshManager {
   public onPeerDisconnected?: (socketId: string, userId: string) => void;
   public onConnectionStateChange?: (socketId: string, state: RTCPeerConnectionState) => void;
   public onPeerSpeaking?: (socketId: string, userId: string, isSpeaking: boolean, level: number) => void;
+  public onAudioPlaybackBlocked?: (blocked: boolean) => void;
+  private signalingHandlers: Array<{ event: string; handler: (...args: any[]) => void }> = [];
 
   // Real-time remote peer voice recognition analysers
   private peerAnalysers: Map<
@@ -93,34 +100,11 @@ export class WebRTCMeshManager {
       this.setMuted(this.isMuted);
 
       return stream;
-    } catch (err: any) {
-      console.warn("[WebRTC] Could not acquire real microphone stream, using silent fallback:", err.message);
-      // Fallback: create silent audio stream so WebRTC peer connection can still be negotiated
-      const fallbackStream = this.createSilentAudioStream();
-      this.localStream = fallbackStream;
-      return fallbackStream;
+    } catch (err) {
+      // Do not create a silent "successful" call when microphone access fails.
+      // Let the UI show the real permission/device error and allow the user to retry.
+      throw err;
     }
-  }
-
-  /**
-   * Helper fallback to generate a silent audio track if user denies mic permissions
-   */
-  private createSilentAudioStream(): MediaStream {
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtx) {
-        const ctx = new AudioCtx();
-        const oscillator = ctx.createOscillator();
-        const dst = oscillator.connect(ctx.createMediaStreamDestination()) as MediaStreamAudioDestinationNode;
-        oscillator.start();
-        const track = dst.stream.getAudioTracks()[0];
-        track.enabled = false;
-        return dst.stream;
-      }
-    } catch {
-      // Ignore
-    }
-    return new MediaStream();
   }
 
   public getLocalStream(): MediaStream | null {
@@ -144,26 +128,36 @@ export class WebRTCMeshManager {
       });
 
       const newAudioTrack = newStream.getAudioTracks()[0];
+      if (!newAudioTrack) {
+        newStream.getTracks().forEach((track) => track.stop());
+        throw new Error("The selected input device did not provide an audio track.");
+      }
+
+      const oldTracks = this.localStream?.getAudioTracks() ?? [];
+      newAudioTrack.enabled = !this.isMuted;
+
+      try {
+        await Promise.all(
+          Array.from(this.peers.values()).map(async (pc) => {
+            const sender = pc.getSenders().find((item) => item.track?.kind === "audio");
+            if (sender) await sender.replaceTrack(newAudioTrack);
+          })
+        );
+      } catch (error) {
+        newStream.getTracks().forEach((track) => track.stop());
+        throw error;
+      }
+
       if (this.localStream) {
-        this.localStream.getAudioTracks().forEach((t) => t.stop());
-        const oldTrack = this.localStream.getAudioTracks()[0];
-        if (oldTrack) this.localStream.removeTrack(oldTrack);
+        oldTracks.forEach((track) => this.localStream!.removeTrack(track));
         this.localStream.addTrack(newAudioTrack);
       } else {
         this.localStream = newStream;
       }
-
-      newAudioTrack.enabled = !this.isMuted;
-
-      // Replace audio track on all peers
-      for (const pc of this.peers.values()) {
-        const audioSender = pc.getSenders().find((s) => s.track && s.track.kind === "audio");
-        if (audioSender) {
-          await audioSender.replaceTrack(newAudioTrack);
-        }
-      }
+      oldTracks.forEach((track) => track.stop());
     } catch (err) {
-      console.warn("[WebRTC] Could not switch audio input device:", err);
+      console.error("[WebRTC] Could not switch audio input device:", err);
+      throw err;
     }
   }
 
@@ -227,6 +221,18 @@ export class WebRTCMeshManager {
     });
   }
 
+  /** Retry remote audio playback after an explicit user gesture. */
+  public async resumeRemoteAudio(): Promise<void> {
+    const results = await Promise.allSettled(
+      Array.from(this.audioElements.values()).map(async (audio) => {
+        audio.muted = this.isDeafened;
+        await audio.play();
+      })
+    );
+    const blocked = results.some((result) => result.status === "rejected");
+    this.onAudioPlaybackBlocked?.(blocked);
+  }
+
   /**
    * Join a room and initialize WebRTC mesh
    */
@@ -246,9 +252,13 @@ export class WebRTCMeshManager {
   }
 
   private setupSocketSignaling(socket: any): void {
+    const listen = (event: string, handler: (...args: any[]) => void) => {
+      socket.on(event, handler);
+      this.signalingHandlers.push({ event, handler });
+    };
+
     // 1. Existing peers in room: prepare connection and initiate offer to each
-    socket.off("room:existing-peers");
-    socket.on("room:existing-peers", async ({ peers }: { peers: Array<{ socketId: string; userId: string; user: any }> }) => {
+    listen("room:existing-peers", async ({ peers }: { peers: Array<{ socketId: string; userId: string; user: any }> }) => {
       console.log(`[WebRTC] Received ${peers.length} existing peers:`, peers);
       for (const peer of peers) {
         this.getOrCreatePeerConnection(peer.socketId, peer.userId);
@@ -257,15 +267,13 @@ export class WebRTCMeshManager {
     });
 
     // 1b. New peer arrived in room: existing peer initiates offer to the newcomer
-    socket.off("room:user-joined");
-    socket.on("room:user-joined", async ({ socketId, userId }: { socketId: string; userId: string }) => {
+    listen("room:user-joined", async ({ socketId, userId }: { socketId: string; userId: string }) => {
       console.log(`[WebRTC] New peer joined room (${socketId}, ${userId}), initiating offer...`);
       await this.createOfferToPeer(socketId, userId);
     });
 
     // 2. Incoming SDP Offer
-    socket.off("webrtc:offer");
-    socket.on("webrtc:offer", async (data: any) => {
+    listen("webrtc:offer", async (data: any) => {
       const senderSocketId = data.senderSocketId;
       const userId = data.userId || data.senderId || "";
       const sdp = data.sdp;
@@ -274,8 +282,7 @@ export class WebRTCMeshManager {
     });
 
     // 3. Incoming SDP Answer
-    socket.off("webrtc:answer");
-    socket.on("webrtc:answer", async (data: any) => {
+    listen("webrtc:answer", async (data: any) => {
       const senderSocketId = data.senderSocketId;
       const sdp = data.sdp;
       console.log(`[WebRTC] Received answer from ${senderSocketId}`);
@@ -283,16 +290,14 @@ export class WebRTCMeshManager {
     });
 
     // 4. Incoming ICE Candidate
-    socket.off("webrtc:ice-candidate");
-    socket.on("webrtc:ice-candidate", async (data: any) => {
+    listen("webrtc:ice-candidate", async (data: any) => {
       const senderSocketId = data.senderSocketId;
       const candidate = data.candidate;
       await this.handleIceCandidate(senderSocketId, candidate);
     });
 
     // 5. Peer Left
-    socket.off("room:user-left");
-    socket.on("room:user-left", ({ socketId, userId }: { socketId: string; userId: string }) => {
+    listen("room:user-left", ({ socketId, userId }: { socketId: string; userId: string }) => {
       console.log(`[WebRTC] Peer ${socketId} left room`);
       this.closePeer(socketId, userId);
     });
@@ -438,9 +443,13 @@ export class WebRTCMeshManager {
       }
 
       audioEl.srcObject = stream;
-      audioEl.play().catch((err) => {
-        console.warn(`[WebRTC] Auto-play was prevented for peer ${targetSocketId}:`, err);
-      });
+      audioEl.play().then(
+        () => this.onAudioPlaybackBlocked?.(false),
+        (err) => {
+          console.warn(`[WebRTC] Auto-play was prevented for peer ${targetSocketId}:`, err);
+          this.onAudioPlaybackBlocked?.(true);
+        }
+      );
 
       this.onRemoteStream?.({
         socketId: targetSocketId,
@@ -722,13 +731,9 @@ export class WebRTCMeshManager {
     // 0. Unbind WebRTC signaling socket listeners
     const socket = socketService.getSocket();
     if (socket) {
-      socket.off("room:existing-peers");
-      socket.off("room:user-joined");
-      socket.off("webrtc:offer");
-      socket.off("webrtc:answer");
-      socket.off("webrtc:ice-candidate");
-      socket.off("room:user-left");
+      this.signalingHandlers.forEach(({ event, handler }) => socket.off(event, handler));
     }
+    this.signalingHandlers = [];
 
     // Clean up remote peer audio analysers
     this.peerAnalysers.forEach((_, socketId) => this.cleanupRemoteAudioAnalysis(socketId));
@@ -780,6 +785,7 @@ export class WebRTCMeshManager {
     this.onPeerDisconnected = undefined;
     this.onConnectionStateChange = undefined;
     this.onPeerSpeaking = undefined;
+    this.onAudioPlaybackBlocked = undefined;
 
     // 5. Notify socket server
     if (this.roomId) {

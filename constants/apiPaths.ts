@@ -12,6 +12,7 @@ export const API_PATHS = {
     PROFILE: "/api/auth/profile",
     REGISTER: "/api/auth/register",
     LOGIN: "/api/auth/login",
+    LOGOUT: "/api/auth/logout",
   },
 
   // 2. Voice Rooms CRUD & Lifecycle

@@ -179,6 +179,14 @@ nimble-voice/
 └── tsconfig.json               # TypeScript compiler configuration
 ```
 
+## Online Learner Presence
+
+The navbar and lobby use one shared native WebSocket connection at `/ws/presence`. The browser authenticates through the scoped `nimble_presence` HttpOnly cookie issued by the existing guest, login, and registration endpoints. Count updates come from the Go server's in-memory presence store; the UI marks the last count stale when the socket is disconnected.
+
+For local development, set `NEXT_PUBLIC_PRESENCE_WS_URL=ws://localhost:8080/ws/presence` in `.env.local` and configure the backend with `FRONTEND_ORIGINS=http://localhost:3000`. For production, set the frontend URL to `wss://<backend-host>/ws/presence`, serve the frontend and API over HTTPS, allow the exact frontend origin in `FRONTEND_ORIGINS`, and configure the reverse proxy to forward WebSocket upgrades. The backend sets `Secure` and `SameSite=None` on the cookie when it receives HTTPS (directly or through `X-Forwarded-Proto: https`).
+
+The counter is process-local. A single Go instance is accurate; multiple backend instances require shared presence storage and cross-instance event delivery.
+
 ---
 
 ## 🚀 Getting Started
