@@ -7,6 +7,7 @@ import { CreateRoomInput, UserProfileInput } from "@/schemas";
 import { apiClient } from "@/lib/axios";
 import { normalizeRoom, normalizeMessage, normalizeUser } from "@/lib/normalize";
 import { toast } from "sonner";
+import { setPresenceAuthenticated } from "@/lib/presence/auth-events";
 
 /**
  * 1. Rooms Catalog Hook
@@ -249,6 +250,7 @@ export function useAuthApi() {
     if (typeof window !== "undefined" && token) {
       localStorage.setItem("token", token);
       localStorage.setItem("nimble_auth_token", token);
+      setPresenceAuthenticated(true);
     }
   };
 
@@ -307,6 +309,8 @@ export function useAuthApi() {
   };
 
   const logout = () => {
+    setPresenceAuthenticated(false);
+    apiClient.post(API_PATHS.AUTH.LOGOUT).catch(() => {});
     if (typeof window !== "undefined") {
       localStorage.removeItem("token");
       localStorage.removeItem("nimble_auth_token");

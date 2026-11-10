@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { User } from "@/types";
 import { CEFRLevel } from "@/enums";
+import { setPresenceAuthenticated } from "@/lib/presence/auth-events";
 
 interface AuthState {
   user: User | null;
@@ -45,6 +46,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         const parsed = JSON.parse(stored);
         if (!parsed.isGuest) {
           set({ user: parsed, isAuthenticated: true, isGuest: false });
+          setPresenceAuthenticated(true);
           return;
         }
       }
@@ -54,6 +56,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       if (sessionStored) {
         const parsedGuest = JSON.parse(sessionStored);
         set({ user: parsedGuest, isAuthenticated: false, isGuest: true });
+        setPresenceAuthenticated(Boolean(localStorage.getItem("token") || localStorage.getItem("nimble_auth_token")));
         return;
       }
 
@@ -86,6 +89,7 @@ export const useAuthStore = create<AuthState>((set) => ({
                 if (res?.token) {
                   localStorage.setItem("token", res.token);
                   localStorage.setItem("nimble_auth_token", res.token);
+                  setPresenceAuthenticated(true);
                 }
                 if (res?.user) {
                   import("@/lib/normalize").then(({ normalizeUser }) => {
@@ -100,6 +104,8 @@ export const useAuthStore = create<AuthState>((set) => ({
               .catch(() => {});
           });
         });
+      } else {
+        setPresenceAuthenticated(true);
       }
     } catch {}
   },
@@ -112,16 +118,23 @@ export const useAuthStore = create<AuthState>((set) => ({
       } catch {}
     }
     set({ user, isAuthenticated: true, isGuest: false });
+    setPresenceAuthenticated(true);
   },
 
   logout: () => {
+    import("@/lib/axios")
+      .then(({ apiClient }) => apiClient.post("/api/auth/logout"))
+      .catch(() => {});
     if (typeof window !== "undefined") {
       try {
         localStorage.removeItem("nimble_voice_user");
         sessionStorage.removeItem("nimble_voice_guest");
+        localStorage.removeItem("token");
+        localStorage.removeItem("nimble_auth_token");
       } catch {}
     }
     set({ user: null, isAuthenticated: false, isGuest: false });
+    setPresenceAuthenticated(false);
   },
 
   setGuestUser: (name = "Guest Learner") => {
@@ -155,6 +168,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       isAuthenticated: true,
       isGuest: true,
     });
+    setPresenceAuthenticated(Boolean(localStorage.getItem("token") || localStorage.getItem("nimble_auth_token")));
   },
 
   updateProfile: (updates) =>

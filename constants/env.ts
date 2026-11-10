@@ -28,6 +28,11 @@ export const ENV = {
   SOCKET_PATH:
     process.env.NEXT_PUBLIC_SOCKET_PATH || "/socket.io/",
 
+  /** Native WebSocket endpoint used for application wide presence. */
+  PRESENCE_WS_URL:
+    process.env.NEXT_PUBLIC_PRESENCE_WS_URL ||
+    `${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080").replace(/^http/, "ws").replace(/\/api(?:\/v\d+)?\/?$/, "")}/ws/presence`,
+
   /**
    * STUN / TURN Ice Server Credentials (optional remote fallback)
    */
@@ -56,6 +61,7 @@ export const {
   API_URL,
   SOCKET_URL,
   SOCKET_PATH,
+  PRESENCE_WS_URL,
   TURN_URL,
   TURN_USERNAME,
   TURN_CREDENTIAL,

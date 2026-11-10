@@ -6,6 +6,7 @@ import { Plus, Coffee, Settings } from "lucide-react";
 import { motion } from "framer-motion";
 import { TabGlider } from "./motion/TabGlider";
 import { TacticalEqualizer } from "./motion/TacticalEqualizer";
+import { OnlineLearners } from "@/components/OnlineLearners";
 
 const NAV_TABS = [
   { id: "rooms", label: "Rooms" },
@@ -69,9 +70,7 @@ export function Navbar() {
             <div className="flex flex-col">
               <span className="font-bold text-fluid-title text-[#dde3ed] tracking-tight flex items-center gap-1.5 leading-none">
                 NimbleVoice
-                <span className="text-[10px] uppercase font-semibold tracking-wider px-1.5 py-0.5 rounded bg-[#22c55e]/20 text-[#22c55e] border border-[#22c55e]/30">
-                  Live
-                </span>
+                <OnlineLearners compact />
               </span>
               <span className="text-fluid-caption text-[#94a3b8] tracking-normal font-normal">
                 Virtual Study & Voice Rooms
