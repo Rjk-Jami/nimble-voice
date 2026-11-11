@@ -56,6 +56,11 @@ export const API_PATHS = {
   NETWORK: {
     STATS: "/api/stats/network",
   },
+
+  // 7. WebRTC Dynamic ICE Configuration
+  WEBRTC: {
+    ICE_SERVERS: "/api/v1/webrtc/ice-servers",
+  },
 } as const;
 
 export type ApiPaths = typeof API_PATHS;

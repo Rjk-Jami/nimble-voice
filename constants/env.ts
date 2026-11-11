@@ -34,13 +34,6 @@ export const ENV = {
     `${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080").replace(/^http/, "ws").replace(/\/api(?:\/v\d+)?\/?$/, "")}/ws/presence`,
 
   /**
-   * STUN / TURN Ice Server Credentials (optional remote fallback)
-   */
-  TURN_URL: process.env.NEXT_PUBLIC_TURN_URL || "",
-  TURN_USERNAME: process.env.NEXT_PUBLIC_TURN_USERNAME || "",
-  TURN_CREDENTIAL: process.env.NEXT_PUBLIC_TURN_CREDENTIAL || "",
-
-  /**
    * Application Metadata
    */
   APP_NAME: "NimbleVoice",
@@ -62,9 +55,6 @@ export const {
   SOCKET_URL,
   SOCKET_PATH,
   PRESENCE_WS_URL,
-  TURN_URL,
-  TURN_USERNAME,
-  TURN_CREDENTIAL,
   APP_NAME,
   APP_DESCRIPTION,
   SITE_URL,

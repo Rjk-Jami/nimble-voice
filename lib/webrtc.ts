@@ -1,22 +1,12 @@
 "use client";
 
 import { socketService } from "./socket";
+import {
+  getIceConfiguration,
+  STUN_ONLY_ICE_SERVERS,
+  type IceDiagnosticState,
+} from "./ice";
 import { User } from "@/types";
-
-const turnUrls = process.env.NEXT_PUBLIC_TURN_URLS?.split(",").map((url) => url.trim()).filter(Boolean) ?? [];
-const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME;
-const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
-
-export const DEFAULT_ICE_SERVERS: RTCConfiguration = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun.cloudflare.com:3478" },
-    ...(turnUrls.length && turnUsername && turnCredential
-      ? [{ urls: turnUrls, username: turnUsername, credential: turnCredential }]
-      : []),
-  ],
-  iceCandidatePoolSize: 4,
-};
 
 export interface RemotePeerMedia {
   socketId: string;
@@ -36,6 +26,8 @@ export class WebRTCMeshManager {
   private isDeafened: boolean = false;
   private roomId: string | null = null;
   private currentUser: Partial<User> | null = null;
+  private currentIceConfig: RTCConfiguration = STUN_ONLY_ICE_SERVERS;
+  private iceGeneration: number = 0;
 
   private screenStream: MediaStream | null = null;
 
@@ -51,6 +43,7 @@ export class WebRTCMeshManager {
   public onConnectionStateChange?: (socketId: string, state: RTCPeerConnectionState) => void;
   public onPeerSpeaking?: (socketId: string, userId: string, isSpeaking: boolean, level: number) => void;
   public onAudioPlaybackBlocked?: (blocked: boolean) => void;
+  public onIceDiagnostic?: (diagnostic: IceDiagnosticState | null) => void;
   private signalingHandlers: Array<{ event: string; handler: (...args: any[]) => void }> = [];
 
   // Real-time remote peer voice recognition analysers
@@ -234,14 +227,36 @@ export class WebRTCMeshManager {
   }
 
   /**
+   * Resolve dynamic ICE configuration from backend without throwing or interrupting active calls
+   */
+  public async refreshIceConfiguration(forceRefresh: boolean = false): Promise<IceDiagnosticState | null> {
+    const generation = this.iceGeneration;
+    const result = await getIceConfiguration({ forceRefresh });
+    if (generation !== this.iceGeneration) {
+      return null;
+    }
+    this.currentIceConfig = result.config;
+    this.onIceDiagnostic?.(result.diagnostic);
+    return result.diagnostic;
+  }
+
+  /**
    * Join a room and initialize WebRTC mesh
    */
   public async joinRoom(roomId: string, user: Partial<User>): Promise<void> {
     this.roomId = roomId;
     this.currentUser = user;
+    const joinGeneration = ++this.iceGeneration;
 
-    // Acquire mic stream
-    await this.initLocalMedia();
+    // Resolve dynamic ICE configuration and acquire mic stream
+    await Promise.all([
+      this.refreshIceConfiguration(false),
+      this.initLocalMedia(),
+    ]);
+
+    if (this.roomId !== roomId || this.iceGeneration !== joinGeneration) {
+      return;
+    }
 
     // Register socket listeners for WebRTC signaling
     const socket = socketService.connect();
@@ -319,8 +334,18 @@ export class WebRTCMeshManager {
 
     console.log(`[WebRTC] Peer ${targetSocketId} connection failed. Triggering automatic ICE restart...`);
     try {
-      if (typeof pc.restartIce === "function") {
-        pc.restartIce();
+      await this.refreshIceConfiguration(false);
+      const activePc = this.peers.get(targetSocketId);
+      if (!activePc || activePc !== pc || activePc.signalingState === "closed") return;
+      if (typeof activePc.setConfiguration === "function") {
+        try {
+          activePc.setConfiguration(this.currentIceConfig);
+        } catch (configErr) {
+          console.warn(`[WebRTC] Failed to apply refreshed ICE config for ${targetSocketId}:`, configErr);
+        }
+      }
+      if (typeof activePc.restartIce === "function") {
+        activePc.restartIce();
       }
       await this.createOfferToPeer(targetSocketId, userId, true);
     } catch (err) {
@@ -348,7 +373,7 @@ export class WebRTCMeshManager {
       this.peers.delete(targetSocketId);
     }
 
-    pc = new RTCPeerConnection(DEFAULT_ICE_SERVERS);
+    pc = new RTCPeerConnection(this.currentIceConfig);
     this.peers.set(targetSocketId, pc);
 
     // 1. Audio track / transceiver (m-line 0: audio)
@@ -779,13 +804,16 @@ export class WebRTCMeshManager {
     this.pendingRenegotiation.clear();
     this.lastIceRestartTime.clear();
 
-    // 4. Clear callbacks
+    // 4. Clear callbacks & invalidate pending ICE resolutions
+    this.iceGeneration += 1;
+    this.currentIceConfig = STUN_ONLY_ICE_SERVERS;
     this.onRemoteStream = undefined;
     this.onRemoteScreenStream = undefined;
     this.onPeerDisconnected = undefined;
     this.onConnectionStateChange = undefined;
     this.onPeerSpeaking = undefined;
     this.onAudioPlaybackBlocked = undefined;
+    this.onIceDiagnostic = undefined;
 
     // 5. Notify socket server
     if (this.roomId) {
