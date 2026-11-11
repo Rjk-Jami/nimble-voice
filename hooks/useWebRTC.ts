@@ -167,6 +167,7 @@ export function useWebRTC(roomId?: string) {
         if (user) {
           addParticipant({
             ...user,
+            isHost: useRoomStore.getState().isHost,
             isSpeaking: false,
             isMuted,
             isDeafened,
