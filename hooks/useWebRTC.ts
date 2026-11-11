@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { webrtcMeshManager, RemotePeerMedia } from "@/lib/webrtc";
+import type { IceDiagnosticState } from "@/lib/ice";
 import { socketService } from "@/lib/socket";
 import { useVoiceStore, useRoomStore, useAuthStore } from "@/stores";
 import { User, Participant } from "@/types";
@@ -27,21 +28,46 @@ export function useWebRTC(roomId?: string) {
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "connecting" | "connected">("idle");
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [audioPlaybackBlocked, setAudioPlaybackBlocked] = useState(false);
+  const [iceDiagnostic, setIceDiagnostic] = useState<IceDiagnosticState | null>(null);
+  const [isRetryingIce, setIsRetryingIce] = useState(false);
+  const [iceDiagnosticDismissed, setIceDiagnosticDismissed] = useState(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastSpeakingStateRef = useRef<boolean>(false);
+  const lastIceDiagnosticModeRef = useRef<IceDiagnosticState["mode"] | null>(null);
+  const mountedRef = useRef<boolean>(false);
+
+  const applyIceDiagnostic = useCallback((diagnostic: IceDiagnosticState | null) => {
+    if (!diagnostic) {
+      lastIceDiagnosticModeRef.current = null;
+      setIceDiagnostic(null);
+      setIceDiagnosticDismissed(false);
+      return;
+    }
+    if (lastIceDiagnosticModeRef.current !== diagnostic.mode) {
+      setIceDiagnosticDismissed(false);
+    }
+    lastIceDiagnosticModeRef.current = diagnostic.mode;
+    setIceDiagnostic(diagnostic);
+  }, []);
 
   // 1. Initialize WebRTC and Socket when joining a room
   useEffect(() => {
     if (!roomId || !user) return;
 
     let mounted = true;
+    mountedRef.current = true;
     setConnectionStatus("connecting");
 
     const setupMesh = async () => {
       try {
+        webrtcMeshManager.onIceDiagnostic = (diagnostic) => {
+          if (!mounted) return;
+          applyIceDiagnostic(diagnostic);
+        };
+
         await webrtcMeshManager.joinRoom(roomId, user);
 
         if (!mounted) return;
@@ -238,14 +264,19 @@ export function useWebRTC(roomId?: string) {
 
     return () => {
       mounted = false;
+      mountedRef.current = false;
       cleanupPromise.then((cleanupFn) => cleanupFn && cleanupFn());
       webrtcMeshManager.destroy();
       setStream(null);
       setLocalStream(null);
       setRemotePeers([]);
       setConnectionStatus("idle");
+      lastIceDiagnosticModeRef.current = null;
+      setIceDiagnostic(null);
+      setIceDiagnosticDismissed(false);
+      setIsRetryingIce(false);
     };
-  }, [roomId, user?.id]);
+  }, [roomId, user?.id, applyIceDiagnostic]);
 
   // 2. React to isMuted changes
   useEffect(() => {
@@ -278,7 +309,7 @@ export function useWebRTC(roomId?: string) {
     if (!localStream || isMuted || isDeafened || !user?.id || !roomId) {
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (audioContextRef.current && audioContextRef.current.state !== "closed") {
-        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current.close().catch(() => { });
       }
       audioContextRef.current = null;
       analyserRef.current = null;
@@ -337,7 +368,7 @@ export function useWebRTC(roomId?: string) {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (audioContextRef.current && audioContextRef.current.state !== "closed") {
-        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current.close().catch(() => { });
       }
     };
   }, [localStream, isMuted, isDeafened, user?.id, roomId, setSpeaking, setAudioLevel, updateParticipant]);
@@ -353,6 +384,25 @@ export function useWebRTC(roomId?: string) {
     await webrtcMeshManager.switchAudioInput(deviceId);
   }, []);
 
+  const retryIceLookup = useCallback(async () => {
+    setIsRetryingIce(true);
+    try {
+      const diagnostic = await webrtcMeshManager.refreshIceConfiguration(true);
+      if (!mountedRef.current) return;
+      lastIceDiagnosticModeRef.current = diagnostic?.mode ?? null;
+      setIceDiagnostic(diagnostic);
+      setIceDiagnosticDismissed(false);
+    } finally {
+      if (mountedRef.current) {
+        setIsRetryingIce(false);
+      }
+    }
+  }, []);
+
+  const dismissIceDiagnostic = useCallback(() => {
+    setIceDiagnosticDismissed(true);
+  }, []);
+
   return {
     localStream,
     remotePeers,
@@ -361,6 +411,10 @@ export function useWebRTC(roomId?: string) {
     connectionStatus,
     mediaError,
     audioPlaybackBlocked,
+    iceDiagnostic: iceDiagnosticDismissed ? null : iceDiagnostic,
+    isRetryingIce,
+    retryIceLookup,
+    dismissIceDiagnostic,
     resumeRemoteAudio: () => webrtcMeshManager.resumeRemoteAudio(),
     shareScreen: handleShareScreen,
     switchAudioInput: handleSwitchAudioInput,

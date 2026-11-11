@@ -25,7 +25,11 @@ import {
   Lock,
   ShieldCheck,
   UserX,
+  AlertTriangle,
+  Wifi,
+  RefreshCw,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { FloatingReactionItem, FloatingReactions } from "./motion/FloatingReaction";
 import { MotionButton } from "./motion/MotionButton";
@@ -82,6 +86,10 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
     isSocketConnected,
     mediaError,
     audioPlaybackBlocked,
+    iceDiagnostic,
+    isRetryingIce,
+    retryIceLookup,
+    dismissIceDiagnostic,
     resumeRemoteAudio,
     toggleMute,
     toggleDeafen,
@@ -337,6 +345,55 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
           >
             Enable audio
           </button>
+        </div>
+      )}
+
+      {iceDiagnostic && (
+        <div
+          role="status"
+          className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-2 text-sm ${
+            iceDiagnostic.mode === "endpoint-unavailable"
+              ? "border-amber-400/40 bg-amber-400/10 text-[#fef3c7]"
+              : "border-[#2a3340] bg-[#1a2027] text-[#94a3b8]"
+          }`}
+        >
+          <div className="flex min-w-0 flex-1 items-start gap-2 sm:items-center">
+            {iceDiagnostic.mode === "endpoint-unavailable" ? (
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#fbbf24] sm:mt-0" aria-hidden="true" />
+            ) : (
+              <Wifi className="mt-0.5 h-4 w-4 shrink-0 text-[#94a3b8] sm:mt-0" aria-hidden="true" />
+            )}
+            <p className="min-w-0 break-words leading-6">{iceDiagnostic.message}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {iceDiagnostic.mode === "endpoint-unavailable" && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isRetryingIce}
+                onClick={() => void retryIceLookup()}
+                className="border-amber-400/40 bg-amber-400/15 text-[#fef3c7] hover:bg-amber-400/25 hover:text-[#fef3c7]"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isRetryingIce ? "animate-spin" : ""}`} aria-hidden="true" />
+                <span>{isRetryingIce ? "Checking ICE Servers" : "Retry ICE Lookup"}</span>
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={dismissIceDiagnostic}
+              aria-label="Dismiss ICE diagnostic"
+              className={
+                iceDiagnostic.mode === "endpoint-unavailable"
+                  ? "text-[#fef3c7] hover:bg-amber-400/20 hover:text-[#fef3c7]"
+                  : "text-[#94a3b8] hover:bg-[#242a32] hover:text-[#dde3ed]"
+              }
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </div>
         </div>
       )}
 
