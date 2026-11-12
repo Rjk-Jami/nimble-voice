@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import { toast } from "sonner";
 import { useVoiceRoom, useMessenger, useSpeakingDetection } from "@/hooks";
-import { useAuthStore, useUIStore } from "@/stores";
+import { useAuthStore, useRoomStore, useUIStore, useVoiceStore } from "@/stores";
 import { VoiceRoom } from "@/types";
 import {
   Mic,
@@ -134,72 +135,96 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
 
   // Floating live emoji reactions
   const [floatingReactions, setFloatingReactions] = useState<FloatingReactionItem[]>([]);
+  const seenReactionIdsRef = useRef<Set<string>>(new Set());
 
   // Screen share streams
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const screenVideoRef = useRef<HTMLVideoElement>(null);
   const remoteScreenVideoRef = useRef<HTMLVideoElement>(null);
   const [copiedLink, setCopiedLink] = useState(false);
-  const isHost = Boolean(user?.id && (currentRoom?.host?.id === user.id || room.host?.id === user.id));
+  const effectiveHostId = currentRoom?.host?.id ?? room.host?.id;
+  const isHost = Boolean(user?.id && effectiveHostId === user.id);
   const [isLocked, setIsLocked] = useState(Boolean(currentRoom?.hasFreeSeats === false));
+  const [isLockPending, setIsLockPending] = useState(false);
+  const [pendingKickUserId, setPendingKickUserId] = useState<string | null>(null);
+  const [isModerationPending, setIsModerationPending] = useState(false);
 
   // Hook into real WebRTC microphone stream for speaking detection
   const { isSpeaking } = useSpeakingDetection(localStream);
 
-  // Sync real-time host moderation events
+  // Sync real-time canonical moderation, lifecycle, and floating reaction events
   useEffect(() => {
-    const socket = socketService.getSocket();
-    const roomId = currentRoom?.id || room.id;
+    const activeRoomId = currentRoom?.id || room.id;
 
-    const handleForceMuted = (data: any) => {
-      if (data?.roomId === roomId) {
-        if (!isMuted) toggleMute();
-        alert(data?.reason || "You were muted by the room host.");
-      }
-    };
+    const unsubs: Array<() => void> = [
+      socketService.onEvent("voice.mute_changed", (data) => {
+        if (
+          data.roomId === activeRoomId &&
+          data.userId === user?.id &&
+          data.forcedByHost
+        ) {
+          useVoiceStore.getState().setMuted(data.isMuted);
+          if (data.isMuted) {
+            toast.warning(data.reason || "You were muted by the room host.");
+          }
+        }
+      }),
+      socketService.onEvent("moderation.participant_kicked", (data) => {
+        if (data.roomId === activeRoomId && data.targetUserId === user?.id) {
+          toast.error(
+            data.reason || "You were removed from this room by the host."
+          );
+          void leaveRoom();
+        }
+      }),
+      socketService.onEvent("moderation.room_locked", (data) => {
+        if (data.roomId === activeRoomId) {
+          setIsLocked(Boolean(data.isLocked));
+        }
+      }),
+      socketService.onEvent("room.deleted", (data) => {
+        if (data.roomId === activeRoomId) {
+          toast.info(data.reason || "Room was closed by the host.");
+          void leaveRoom();
+        }
+      }),
+      socketService.onEvent("room.host_changed", (data) => {
+        if (data.roomId === activeRoomId) {
+          useRoomStore.getState().updateRoomHost(activeRoomId, data.newHostId);
+        }
+      }),
+      socketService.onEvent("chat.message_created", (data) => {
+        if (data.roomId !== activeRoomId || data.type !== "REACTION") return;
+        const seen = seenReactionIdsRef.current;
+        if (
+          seen.has(data.id) ||
+          (data.clientMessageId && seen.has(data.clientMessageId))
+        ) {
+          return;
+        }
+        seen.add(data.id);
+        if (data.clientMessageId) {
+          seen.add(data.clientMessageId);
+        }
+        if (seen.size > 200) {
+          const oldest = seen.values().next().value;
+          if (oldest !== undefined) seen.delete(oldest);
+        }
 
-    const handleKicked = (data: any) => {
-      if (data?.roomId === roomId) {
-        alert(data?.reason || "You were removed from this room by the host.");
-        leaveRoom();
-      }
-    };
-
-    const handleLockChanged = (data: any) => {
-      if (data?.roomId === roomId) {
-        setIsLocked(Boolean(data.isLocked));
-      }
-    };
-
-    socket.on("room:force-muted", handleForceMuted);
-    socket.on("room:kicked", handleKicked);
-    socket.on("room:lock-changed", handleLockChanged);
+        const emoji = String(data.content || "").trim().split(/\s+/)[0] || "👍";
+        const newReaction: FloatingReactionItem = {
+          id: data.id || `${Date.now()}-${Math.random()}`,
+          emoji,
+          xOffset: (Math.random() - 0.5) * 160,
+        };
+        setFloatingReactions((prev) => [...prev.slice(-8), newReaction]);
+      }),
+    ];
 
     return () => {
-      socket.off("room:force-muted", handleForceMuted);
-      socket.off("room:kicked", handleKicked);
-      socket.off("room:lock-changed", handleLockChanged);
+      unsubs.forEach((unsub) => unsub());
     };
-  }, [currentRoom?.id, room.id, isMuted, toggleMute, leaveRoom]);
-
-  // Sync real-time floating reactions from peers
-  useEffect(() => {
-    const socket = socketService.getSocket();
-
-    const handleReaction = (reaction: { id: string; emoji: string; xOffset?: number }) => {
-      const newReaction: FloatingReactionItem = {
-        id: reaction.id || `${Date.now()}-${Math.random()}`,
-        emoji: reaction.emoji,
-        xOffset: reaction.xOffset || (Math.random() - 0.5) * 160,
-      };
-      setFloatingReactions((prev) => [...prev.slice(-8), newReaction]);
-    };
-
-    socket.on("reaction:new-reaction", handleReaction);
-    return () => {
-      socket.off("reaction:new-reaction", handleReaction);
-    };
-  }, []);
+  }, [currentRoom?.id, room.id, user?.id, leaveRoom]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -259,11 +284,11 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      alert("Please select an image file (PNG, JPEG, WebP, GIF)");
+      toast.error("Please select an image file (PNG, JPEG, WebP, GIF)");
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      alert("File size exceeds 10MB limit");
+      toast.error("File size exceeds 10MB limit");
       return;
     }
     setPendingFile(file);
@@ -310,13 +335,7 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
   };
 
   const handleTriggerReaction = (emoji: string) => {
-    sendReaction(emoji);
-    const newReaction: FloatingReactionItem = {
-      id: `${Date.now()}-${Math.random()}`,
-      emoji,
-      xOffset: (Math.random() - 0.5) * 160,
-    };
-    setFloatingReactions((prev) => [...prev.slice(-8), newReaction]);
+    void sendReaction(emoji);
   };
 
   const participantsList = currentRoom?.participants || room.participants;
@@ -630,19 +649,41 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => {
+                  type="button"
+                  disabled={isLockPending}
+                  onClick={async () => {
+                    const activeRoomId = currentRoom?.id || room.id;
                     const nextLocked = !isLocked;
-                    setIsLocked(nextLocked);
-                    socketService.lockRoom(currentRoom?.id || room.id, nextLocked);
+                    setIsLockPending(true);
+                    try {
+                      const ack = await socketService.lockRoom(activeRoomId, nextLocked);
+                      const committedLocked = Boolean(ack?.isLocked ?? nextLocked);
+                      setIsLocked(committedLocked);
+                      toast.success(
+                        committedLocked
+                          ? "Room locked. New learners cannot join."
+                          : "Room unlocked."
+                      );
+                    } catch (err: any) {
+                      toast.error(err?.message || "Failed to update room lock.");
+                    } finally {
+                      setIsLockPending(false);
+                    }
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold border transition-colors cursor-pointer disabled:opacity-50 ${
                     isLocked
                       ? "bg-[#ef4444]/20 border-[#ef4444] text-[#ef4444]"
                       : "bg-[#242a32] border-[#2a3340] text-[#94a3b8] hover:text-[#dde3ed]"
                   }`}
                 >
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>{isLocked ? "Room Locked" : "Lock Room"}</span>
+                  {isLockPending ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Lock className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    {isLockPending ? "Updating..." : isLocked ? "Room Locked" : "Lock Room"}
+                  </span>
                 </button>
               </div>
             </div>
@@ -696,27 +737,82 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
                       {isHost && !isCurrentUser && !p.isHost && (
                         <div className="flex items-center gap-1 ml-1.5">
                           <button
-                            onClick={(e) => {
+                            type="button"
+                            disabled={isModerationPending}
+                            onClick={async (e) => {
                               e.stopPropagation();
-                              socketService.muteUser(currentRoom?.id || room.id, p.id);
+                              setIsModerationPending(true);
+                              try {
+                                await socketService.muteUser(
+                                  currentRoom?.id || room.id,
+                                  p.id
+                                );
+                                toast.success(`Muted ${p.name}.`);
+                              } catch (err: any) {
+                                toast.error(
+                                  err?.message || `Failed to mute ${p.name}.`
+                                );
+                              } finally {
+                                setIsModerationPending(false);
+                              }
                             }}
                             title="Mute Participant"
-                            className="p-1 rounded bg-[#242a32] hover:bg-[#ef4444]/20 text-[#94a3b8] hover:text-[#ef4444] transition-colors border border-[#2a3340]"
+                            className="p-1 rounded bg-[#242a32] hover:bg-[#ef4444]/20 text-[#94a3b8] hover:text-[#ef4444] transition-colors border border-[#2a3340] disabled:opacity-50"
                           >
                             <MicOff className="w-3 h-3" />
                           </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (confirm(`Kick ${p.name} from the room?`)) {
-                                socketService.kickUser(currentRoom?.id || room.id, p.id);
-                              }
-                            }}
-                            title="Kick Participant"
-                            className="p-1 rounded bg-[#242a32] hover:bg-[#ef4444]/20 text-[#94a3b8] hover:text-[#ef4444] transition-colors border border-[#2a3340]"
-                          >
-                            <UserX className="w-3 h-3" />
-                          </button>
+                          {pendingKickUserId === p.id ? (
+                            <div
+                              className="flex items-center gap-1"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                disabled={isModerationPending}
+                                onClick={async () => {
+                                  setIsModerationPending(true);
+                                  try {
+                                    await socketService.kickUser(
+                                      currentRoom?.id || room.id,
+                                      p.id
+                                    );
+                                    setPendingKickUserId(null);
+                                    toast.success(`Removed ${p.name} from the room.`);
+                                  } catch (err: any) {
+                                    toast.error(
+                                      err?.message || `Failed to kick ${p.name}.`
+                                    );
+                                  } finally {
+                                    setIsModerationPending(false);
+                                  }
+                                }}
+                                className="px-1.5 py-0.5 rounded bg-[#ef4444] text-white text-[10px] font-bold hover:bg-[#dc2626] transition-colors disabled:opacity-50 cursor-pointer"
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isModerationPending}
+                                onClick={() => setPendingKickUserId(null)}
+                                className="px-1.5 py-0.5 rounded bg-[#242a32] text-[#94a3b8] text-[10px] font-semibold hover:text-[#dde3ed] border border-[#2a3340] transition-colors disabled:opacity-50 cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={isModerationPending}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPendingKickUserId(p.id);
+                              }}
+                              title="Kick Participant"
+                              className="p-1 rounded bg-[#242a32] hover:bg-[#ef4444]/20 text-[#94a3b8] hover:text-[#ef4444] transition-colors border border-[#2a3340] disabled:opacity-50"
+                            >
+                              <UserX className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>

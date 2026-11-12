@@ -1,18 +1,51 @@
 "use client";
 
 import { io, Socket } from "socket.io-client";
-import { User, ChatMessage } from "@/types";
+import { ENV } from "@/constants";
 import {
-  SignalingOfferPayload,
+  CANONICAL_SERVER_EVENTS,
+  SocketCommandError,
+  createCommandTracker,
+  createEnvelopeGuard,
+} from "@/lib/socket-protocol.mjs";
+import type {
+  CanonicalClientCommand,
+  CanonicalServerEvent,
+  ChatReactAckDTO,
+  DeliveryAckDTO,
+  LobbySubscriptionAckDTO,
+  MeshPingAckDTO,
+  ModerationKickAckDTO,
+  ModerationLockAckDTO,
+  ModerationMuteAckDTO,
+  PresenceDTO,
+  RoomJoinAckDTO,
+  RoomLeaveAckDTO,
+  ScreenShareAckDTO,
+  ServerEventEnvelope,
+  ServerEventPayloadMap,
+  VoiceMuteChangedDTO,
+} from "@/types/socket";
+import type {
   SignalingAnswerPayload,
   SignalingIcePayload,
+  SignalingOfferPayload,
 } from "@/types/webrtc";
-import { ENV } from "@/constants";
+
+export { SocketCommandError };
 
 class SocketService {
   private socket: Socket | null = null;
   private isConnecting: boolean = false;
+  private needsResubscribe: boolean = false;
   private activeRoomId: string | null = null;
+  private isLobbySubscribed: boolean = false;
+  private envelopeGuard = createEnvelopeGuard({ maxSeenEvents: 1000 });
+  private commandTracker = createCommandTracker({ defaultTimeoutMs: 8000 });
+  private listeners = new Map<
+    CanonicalServerEvent,
+    Set<(data: any, envelope: ServerEventEnvelope<any, any>) => void>
+  >();
 
   public getSocket(): Socket {
     if (!this.socket) {
@@ -29,11 +62,16 @@ class SocketService {
         auth: (cb) => {
           if (typeof window !== "undefined") {
             const token =
+              sessionStorage.getItem("nimble_guest_token") ||
               localStorage.getItem("token") ||
               localStorage.getItem("nimble_auth_token") ||
               "";
             cb({
-              token: token ? (token.startsWith("Bearer ") ? token : `Bearer ${token}`) : "",
+              token: token
+                ? token.startsWith("Bearer ")
+                  ? token
+                  : `Bearer ${token}`
+                : "",
             });
           } else {
             cb({ token: "" });
@@ -41,24 +79,91 @@ class SocketService {
         },
       });
 
-      this.socket.on("connect", () => {
-        console.log(`[SocketService] Connected to gateway (${ENV.SOCKET_URL}): ${this.socket?.id}`);
+      this.socket.on("command.ack", (ack: unknown) => {
+        this.commandTracker.resolveAck(ack);
       });
 
-      this.socket.on("connected", (data) => {
-        console.log("⚡ [SocketService] Go Gateway handshake confirmed:", data);
+      for (const event of CANONICAL_SERVER_EVENTS) {
+        this.socket.on(event, (raw: unknown) => {
+          const result = this.envelopeGuard.evaluate(raw);
+          if (!result.accepted) {
+            if (result.reason !== "duplicate_event_id") {
+              console.debug(
+                `[SocketService] Dropped envelope for ${event}:`,
+                result.reason
+              );
+            }
+            return;
+          }
+
+          const envelope = result.envelope;
+          const subscribers = this.listeners.get(envelope.event);
+          if (!subscribers || subscribers.size === 0) {
+            return;
+          }
+
+          for (const handler of Array.from(subscribers)) {
+            try {
+              handler(envelope.data, envelope);
+            } catch (err) {
+              console.error(
+                `[SocketService] Listener error for ${envelope.event}:`,
+                err
+              );
+            }
+          }
+        });
+      }
+
+      this.socket.on("connect", () => {
+        this.isConnecting = false;
+        console.log(
+          `[SocketService] Connected to gateway (${ENV.SOCKET_URL}): ${this.socket?.id}`
+        );
+
+        if (this.needsResubscribe) {
+          this.needsResubscribe = false;
+          if (this.isLobbySubscribed) {
+            this.emitCommand<LobbySubscriptionAckDTO>("lobby.join", {}).catch(
+              (err) => {
+                console.warn(
+                  "[SocketService] Failed to resubscribe lobby on reconnect:",
+                  err
+                );
+              }
+            );
+          }
+          if (this.activeRoomId) {
+            this.emitCommand<RoomJoinAckDTO>("room.join", {
+              roomId: this.activeRoomId,
+            }).catch((err) => {
+              console.warn(
+                "[SocketService] Failed to rejoin room on reconnect:",
+                err
+              );
+            });
+          }
+        }
       });
 
       this.socket.on("connect_error", (error) => {
+        this.isConnecting = false;
         console.warn(
           `[SocketService] Connection error to ${ENV.SOCKET_URL}:`,
           error.message
         );
+        this.commandTracker.rejectAll(
+          error.message || "Socket connection failed"
+        );
       });
 
-
       this.socket.on("disconnect", (reason) => {
+        this.isConnecting = false;
+        if (reason !== "io client disconnect") {
+          this.needsResubscribe = true;
+        }
         console.log(`[SocketService] Disconnected from gateway: ${reason}`);
+        this.commandTracker.rejectAll(`Socket disconnected: ${reason}`);
       });
     }
 
@@ -70,18 +175,18 @@ class SocketService {
     if (!socket.connected && !this.isConnecting) {
       this.isConnecting = true;
       socket.connect();
-      socket.once("connect", () => {
-        this.isConnecting = false;
-      });
-      socket.once("connect_error", () => {
-        this.isConnecting = false;
-      });
     }
     return socket;
   }
 
   public disconnect(): void {
-    if (this.socket && this.socket.connected) {
+    this.isConnecting = false;
+    this.needsResubscribe = false;
+    this.isLobbySubscribed = false;
+    this.activeRoomId = null;
+    this.commandTracker.rejectAll("Socket disconnected");
+    this.envelopeGuard.reset();
+    if (this.socket) {
       this.socket.disconnect();
     }
   }
@@ -94,66 +199,184 @@ class SocketService {
     return this.socket?.id;
   }
 
-  public sendScreenShare(roomId: string, isSharing: boolean): void {
-    if (this.socket?.connected) {
-      this.socket.emit("room:screen-share", { roomId, isSharing });
+  public onEvent<E extends CanonicalServerEvent>(
+    event: E,
+    handler: (
+      data: ServerEventPayloadMap[E],
+      envelope: ServerEventEnvelope<ServerEventPayloadMap[E], E>
+    ) => void
+  ): () => void {
+    this.getSocket();
+    let subscribers = this.listeners.get(event);
+    if (!subscribers) {
+      subscribers = new Set();
+      this.listeners.set(event, subscribers);
     }
+
+    const wrapped = handler as (
+      data: any,
+      envelope: ServerEventEnvelope<any, any>
+    ) => void;
+    subscribers.add(wrapped);
+
+    return () => {
+      const current = this.listeners.get(event);
+      if (!current) return;
+      current.delete(wrapped);
+      if (current.size === 0) {
+        this.listeners.delete(event);
+      }
+    };
   }
 
-  public joinLobby(): void {
-    const socket = this.connect();
-    socket.emit("lobby:join");
-  }
-
-  public leaveLobby(): void {
-    if (this.socket?.connected) {
-      this.socket.emit("lobby:leave");
+  private waitForConnect(socket: Socket, timeoutMs: number): Promise<void> {
+    if (socket.connected) {
+      return Promise.resolve();
     }
+
+    const effectiveTimeoutMs =
+      typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? timeoutMs
+        : 8000;
+
+    return new Promise((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+
+      const cleanup = () => {
+        if (timer !== null) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        socket.off("connect", onConnect);
+        socket.off("connect_error", onConnectError);
+      };
+
+      const onConnect = () => {
+        cleanup();
+        resolve();
+      };
+
+      const onConnectError = (err: Error) => {
+        cleanup();
+        reject(
+          new SocketCommandError(
+            err?.message || "Socket connection failed",
+            "DISCONNECTED",
+            ""
+          )
+        );
+      };
+
+      timer = setTimeout(() => {
+        cleanup();
+        reject(
+          new SocketCommandError(
+            `Socket connection timed out after ${effectiveTimeoutMs}ms`,
+            "TIMEOUT",
+            ""
+          )
+        );
+      }, effectiveTimeoutMs);
+
+      socket.once("connect", onConnect);
+      socket.once("connect_error", onConnectError);
+      this.connect();
+    });
   }
 
-  public joinRoom(roomId: string, user: Partial<User>): void {
+  public async emitCommand<TData = unknown>(
+    command: CanonicalClientCommand,
+    payload: Record<string, unknown> = {},
+    timeoutMs: number = 8000
+  ): Promise<TData> {
+    const socket = this.getSocket();
+    if (!socket.connected) {
+      await this.waitForConnect(socket, timeoutMs);
+    }
+
+    if (!socket.connected) {
+      throw new SocketCommandError("Socket disconnected", "DISCONNECTED", "");
+    }
+
+    const requestId = this.commandTracker.createRequestId();
+    const ackPromise = this.commandTracker.register<TData>(requestId, {
+      timeoutMs,
+    });
+    socket.emit(command, { ...payload, requestId });
+    return ackPromise;
+  }
+
+  public joinLobby(): Promise<LobbySubscriptionAckDTO> {
+    this.isLobbySubscribed = true;
+    return this.emitCommand<LobbySubscriptionAckDTO>("lobby.join", {});
+  }
+
+  public async leaveLobby(): Promise<LobbySubscriptionAckDTO | void> {
+    this.isLobbySubscribed = false;
+    if (!this.socket?.connected) {
+      return;
+    }
+    return this.emitCommand<LobbySubscriptionAckDTO>("lobby.leave", {});
+  }
+
+  public requestPresence(): Promise<PresenceDTO> {
+    return this.emitCommand<PresenceDTO>("presence.request", {});
+  }
+
+  public joinRoom(roomId: string): Promise<RoomJoinAckDTO> {
     this.activeRoomId = roomId;
-    const socket = this.connect();
-    socket.emit("room:join", { roomId, user });
+    return this.emitCommand<RoomJoinAckDTO>("room.join", { roomId });
   }
 
-  public leaveRoom(roomId?: string): void {
+  public async leaveRoom(roomId?: string): Promise<RoomLeaveAckDTO | void> {
     const leavingRoomId = roomId || this.activeRoomId;
-    if (this.socket?.connected) {
-      this.socket.emit("room:leave", { roomId: leavingRoomId });
-    }
     if (!roomId || roomId === this.activeRoomId) {
       this.activeRoomId = null;
     }
-  }
-
-  public sendOffer(payload: SignalingOfferPayload): void {
-    if (this.socket?.connected) {
-      this.socket.emit("webrtc:offer", { ...payload, roomId: this.activeRoomId });
+    if (!leavingRoomId || !this.socket?.connected) {
+      return;
     }
+    return this.emitCommand<RoomLeaveAckDTO>("room.leave", {
+      roomId: leavingRoomId,
+    });
   }
 
-  public sendAnswer(payload: SignalingAnswerPayload): void {
-    if (this.socket?.connected) {
-      this.socket.emit("webrtc:answer", { ...payload, roomId: this.activeRoomId });
-    }
+  public sendOffer(payload: SignalingOfferPayload): Promise<DeliveryAckDTO> {
+    return this.emitCommand<DeliveryAckDTO>("webrtc.offer", {
+      roomId: this.activeRoomId,
+      targetSocketId: payload.targetSocketId,
+      sdp: payload.sdp,
+    });
   }
 
-  public sendIceCandidate(payload: SignalingIcePayload): void {
-    if (this.socket?.connected) {
-      this.socket.emit("webrtc:ice-candidate", { ...payload, roomId: this.activeRoomId });
-    }
+  public sendAnswer(payload: SignalingAnswerPayload): Promise<DeliveryAckDTO> {
+    return this.emitCommand<DeliveryAckDTO>("webrtc.answer", {
+      roomId: this.activeRoomId,
+      targetSocketId: payload.targetSocketId,
+      sdp: payload.sdp,
+    });
   }
 
-  public sendSpeaking(roomId: string, isSpeaking: boolean, level: number, userId?: string): void {
+  public sendIceCandidate(
+    payload: SignalingIcePayload
+  ): Promise<DeliveryAckDTO> {
+    return this.emitCommand<DeliveryAckDTO>("webrtc.ice_candidate", {
+      roomId: this.activeRoomId,
+      targetSocketId: payload.targetSocketId,
+      candidate: payload.candidate,
+    });
+  }
+
+  public sendSpeaking(
+    roomId: string,
+    isSpeaking: boolean,
+    level: number
+  ): void {
     if (this.socket?.connected) {
-      this.socket.emit("voice:speaking", {
+      this.socket.emit("voice.speaking", {
         roomId,
         isSpeaking,
-        is_speaking: isSpeaking,
-        speaking: isSpeaking,
         level,
-        userId: userId || "",
       });
     }
   }
@@ -161,89 +384,87 @@ class SocketService {
   public sendVoiceState(
     roomId: string,
     state: { isMuted?: boolean; isDeafened?: boolean; handRaised?: boolean }
-  ): void {
-    if (this.socket?.connected) {
-      this.socket.emit("voice:state-toggle", { roomId, ...state });
-    }
+  ): Promise<VoiceMuteChangedDTO> {
+    return this.emitCommand<VoiceMuteChangedDTO>("voice.mute", {
+      roomId,
+      ...state,
+    });
   }
 
-  public sendChatMessage(
+  public setScreenShare(
     roomId: string,
-    messageOrContent: ChatMessage | string,
-    type: string = "TEXT"
-  ): void {
-    if (this.socket?.connected) {
-      if (typeof messageOrContent === "string") {
-        this.socket.emit("chat:send", { roomId, content: messageOrContent, type });
-      } else {
-        this.socket.emit("chat:send", {
-          roomId,
-          content: messageOrContent.content,
-          type: messageOrContent.type,
-          mediaUrl: messageOrContent.mediaUrl,
-          mediaType: messageOrContent.mediaType,
-          message: messageOrContent,
-        });
-      }
-    }
-  }
-
-  public sendReaction(
-    roomId: string,
-    reaction: { id: string; emoji: string; xOffset?: number }
-  ): void {
-    if (this.socket?.connected) {
-      this.socket.emit("reaction:send", { roomId, reaction });
-    }
+    isSharing: boolean
+  ): Promise<ScreenShareAckDTO> {
+    return this.emitCommand<ScreenShareAckDTO>(
+      isSharing ? "screen_share.start" : "screen_share.stop",
+      { roomId }
+    );
   }
 
   public reactToMessage(
     roomId: string,
     messageId: string,
-    emoji: string,
-    userId?: string
-  ): void {
-    if (this.socket?.connected) {
-      this.socket.emit("chat:reaction-add", { roomId, messageId, emoji, userId });
-      this.socket.emit("chat:react", { roomId, messageId, emoji, userId });
-    }
+    emoji: string
+  ): Promise<ChatReactAckDTO> {
+    return this.emitCommand<ChatReactAckDTO>("chat.react", {
+      roomId,
+      messageId,
+      emoji,
+    });
   }
 
-
-  public muteUser(roomId: string, targetUserId: string): void {
-    if (this.socket?.connected) {
-      this.socket.emit("host:mute-user", { roomId, targetUserId });
-    }
+  public muteUser(
+    roomId: string,
+    targetUserId: string
+  ): Promise<ModerationMuteAckDTO> {
+    return this.emitCommand<ModerationMuteAckDTO>(
+      "moderation.mute_participant",
+      {
+        roomId,
+        targetUserId,
+      }
+    );
   }
 
-  public kickUser(roomId: string, targetUserId: string): void {
-    if (this.socket?.connected) {
-      this.socket.emit("host:kick-user", { roomId, targetUserId });
-    }
+  public kickUser(
+    roomId: string,
+    targetUserId: string,
+    reason?: string
+  ): Promise<ModerationKickAckDTO> {
+    return this.emitCommand<ModerationKickAckDTO>(
+      "moderation.kick_participant",
+      {
+        roomId,
+        targetUserId,
+        ...(reason ? { reason } : {}),
+      }
+    );
   }
 
-  public lockRoom(roomId: string, isLocked: boolean): void {
-    if (this.socket?.connected) {
-      this.socket.emit("host:lock-room", { roomId, isLocked });
-    }
+  public lockRoom(
+    roomId: string,
+    isLocked: boolean
+  ): Promise<ModerationLockAckDTO> {
+    return this.emitCommand<ModerationLockAckDTO>("moderation.lock_room", {
+      roomId,
+      isLocked,
+    });
   }
 
   public async measureLatency(): Promise<number> {
     if (!this.socket?.connected) return 24;
-    return new Promise((resolve) => {
-      const start = Date.now();
-      const onPong = () => {
-        this.socket?.off("mesh:pong", onPong);
-        const rtt = Date.now() - start;
-        resolve(Math.max(8, rtt));
-      };
-      this.socket?.once("mesh:pong", onPong);
-      this.socket?.emit("mesh:ping", { timestamp: start });
-      setTimeout(() => {
-        this.socket?.off("mesh:pong", onPong);
-        resolve(28);
-      }, 1000);
-    });
+    const start = Date.now();
+    try {
+      await this.emitCommand<MeshPingAckDTO>(
+        "mesh.ping",
+        { timestamp: start },
+        2000
+      );
+      const rtt = Date.now() - start;
+      return Math.max(8, rtt);
+    } catch {
+      return 28;
+    }
   }
 }
 

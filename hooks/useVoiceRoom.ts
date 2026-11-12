@@ -80,16 +80,17 @@ export function useVoiceRoom(room: VoiceRoom | null) {
   }, []);
 
   const handleLeave = useCallback(async () => {
-    if (currentRoom?.id) {
+    const leavingRoomId = currentRoom?.id;
+    await Promise.resolve(webrtcMeshManager.destroy());
+    resetVoiceState();
+    leaveRoom();
+    if (leavingRoomId) {
       try {
-        await apiClient.post(API_PATHS.ROOMS.LEAVE(currentRoom.id));
+        await apiClient.post(API_PATHS.ROOMS.LEAVE(leavingRoomId));
       } catch (err) {
         console.warn("Backend leave notice:", err);
       }
     }
-    webrtcMeshManager.destroy();
-    resetVoiceState();
-    leaveRoom();
   }, [currentRoom?.id, resetVoiceState, leaveRoom]);
 
 

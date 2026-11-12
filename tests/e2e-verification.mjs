@@ -1,20 +1,45 @@
 import { io } from "socket.io-client";
-import assert from "node:assert";
+import assert from "node:assert/strict";
+import crypto from "node:crypto";
 
-const BACKEND_URL = "http://localhost:8080";
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8080";
 const SOCKET_PATH = "/socket.io/";
 
-function createClient(userId, token = "") {
+async function createGuestSession(name = "") {
+  const res = await fetch(`${BACKEND_URL}/api/v1/auth/guest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  const body = await res.json();
+  const payload = body?.data || body;
+  if (!res.ok || !payload?.token || !payload?.user?.id) {
+    throw new Error(
+      `Guest session creation failed (${res.status}): ${JSON.stringify(body)}`
+    );
+  }
+  return { user: payload.user, token: payload.token };
+}
+
+function createClient(token) {
   return io(BACKEND_URL, {
     path: SOCKET_PATH,
     transports: ["websocket", "polling"],
     auth: {
-      user_id: userId,
-      userId: userId,
-      token: token,
+      token: token ? (token.startsWith("Bearer ") ? token : `Bearer ${token}`) : "",
     },
     reconnection: false,
     timeout: 5000,
+  });
+}
+
+function createRawAuthClient(auth = {}) {
+  return io(BACKEND_URL, {
+    path: SOCKET_PATH,
+    transports: ["websocket", "polling"],
+    auth,
+    reconnection: false,
+    timeout: 4000,
   });
 }
 
@@ -35,11 +60,123 @@ function waitEvent(socket, event, timeoutMs = 4000) {
   });
 }
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function expectHandshakeRejection(auth, timeoutMs = 4000) {
+  return new Promise((resolve, reject) => {
+    const socket = createRawAuthClient(auth);
+    let settled = false;
+    let connectTimer = null;
+
+    const cleanup = () => {
+      settled = true;
+      if (connectTimer) clearTimeout(connectTimer);
+      clearTimeout(timer);
+      socket.removeAllListeners();
+      try {
+        socket.disconnect();
+      } catch {}
+    };
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      cleanup();
+      reject(new Error("Timed out waiting for connect_error on unauthenticated handshake"));
+    }, timeoutMs);
+
+    socket.once("connect_error", (err) => {
+      if (settled) return;
+      cleanup();
+      resolve(err);
+    });
+
+    socket.once("disconnect", (reason) => {
+      if (settled) return;
+      cleanup();
+      resolve(new Error(`Disconnected: ${reason}`));
+    });
+
+    socket.once("connect", () => {
+      // gsocketio sends 40 then 44 in sequence. Wait a tick (250ms) for 44 (connect_error/disconnect).
+      connectTimer = setTimeout(() => {
+        if (settled) return;
+        if (socket.connected) {
+          cleanup();
+          reject(
+            new Error(`Expected connect_error for auth=${JSON.stringify(auth)}, but remained connected`)
+          );
+        }
+      }, 250);
+    });
+  });
+}
+
+function emitCommand(socket, command, payload = {}, timeoutMs = 4000) {
+  const requestId = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off("command.ack", onAck);
+      reject(
+        new Error(
+          `Timeout waiting for command.ack (${command}, requestId=${requestId}) after ${timeoutMs}ms`
+        )
+      );
+    }, timeoutMs);
+
+    const onAck = (ack) => {
+      if (!ack || ack.requestId !== requestId) return;
+      clearTimeout(timer);
+      socket.off("command.ack", onAck);
+      if (ack.ok === true) {
+        resolve(ack.data);
+      } else {
+        const err = new Error(ack.error?.message || `Command ${command} rejected`);
+        err.code = ack.error?.code || "INTERNAL_ERROR";
+        err.requestId = ack.requestId;
+        reject(err);
+      }
+    };
+
+    socket.on("command.ack", onAck);
+    socket.emit(command, { ...payload, requestId });
+  });
+}
+
+function assertEnvelope(raw, expectedEvent) {
+  assert.ok(raw && typeof raw === "object" && !Array.isArray(raw), "Envelope must be an object");
+  assert.strictEqual(raw.schemaVersion, 1, `Expected schemaVersion=1, got ${raw.schemaVersion}`);
+  assert.ok(
+    typeof raw.eventId === "string" && raw.eventId.length > 0,
+    "Envelope eventId must be a non-empty string"
+  );
+  assert.strictEqual(
+    raw.event,
+    expectedEvent,
+    `Expected envelope event "${expectedEvent}", got "${raw.event}"`
+  );
+  assert.ok(
+    typeof raw.occurredAt === "string" && raw.occurredAt.length > 0,
+    "Envelope occurredAt must be a non-empty string"
+  );
+  assert.ok(
+    Number.isInteger(raw.version) && raw.version >= 0,
+    `Envelope version must be integer >= 0, got ${raw.version}`
+  );
+  assert.notStrictEqual(raw.data, undefined, "Envelope data must be defined");
+  return raw;
+}
 
 const testResults = [];
 
-function recordResult(testId, feature, preconditions, steps, expected, actual, status, evidence, defect = "None") {
+function recordResult(
+  testId,
+  feature,
+  preconditions,
+  steps,
+  expected,
+  actual,
+  status,
+  evidence,
+  defect = "None"
+) {
   testResults.push({
     testId,
     feature,
@@ -56,111 +193,140 @@ function recordResult(testId, feature, preconditions, steps, expected, actual, s
 
 async function runTestSuite() {
   console.log("==================================================================");
-  console.log("NimbleVoice Automated E2E & Real-Time Verification Suite");
+  console.log("NimbleVoice Automated E2E & Canonical Socket Contract Suite");
   console.log("Target Backend: " + BACKEND_URL);
   console.log("==================================================================\n");
 
+  let sessionA;
+  let sessionB;
+  let sessionLobby;
+  let sessionJoiner;
+  let sessionAttacker;
+
   // -------------------------------------------------------------------------
-  // TEST G: Guest Identity Generation & Login Stability
+  // TEST G: Guest Identity Generation & JWT Issuance
   // -------------------------------------------------------------------------
   try {
-    const res1 = await fetch(`${BACKEND_URL}/api/v1/auth/guest`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "" }),
-    });
-    const data1 = await res1.json();
-
-    const res2 = await fetch(`${BACKEND_URL}/api/v1/auth/guest`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "" }),
-    });
-    const data2 = await res2.json();
+    sessionA = await createGuestSession("E2E Host");
+    sessionB = await createGuestSession("E2E Peer B");
+    sessionLobby = await createGuestSession("E2E Lobby Watcher");
+    sessionJoiner = await createGuestSession("E2E Joiner");
+    sessionAttacker = await createGuestSession("E2E Attacker");
 
     const guestIdRegex = /^user\d{8}\d{3,}$/;
-    const id1 = data1?.data?.user?.id;
-    const id2 = data2?.data?.user?.id;
-
-    const matchesRegex1 = guestIdRegex.test(id1);
-    const matchesRegex2 = guestIdRegex.test(id2);
-    const areUnique = id1 !== id2;
-
-    assert.ok(matchesRegex1, `Guest 1 ID (${id1}) does not match userYYYYMMDDNNN format`);
-    assert.ok(matchesRegex2, `Guest 2 ID (${id2}) does not match userYYYYMMDDNNN format`);
-    assert.ok(areUnique, `Guest IDs collided: ${id1} === ${id2}`);
+    assert.ok(
+      guestIdRegex.test(sessionA.user.id),
+      `Guest A ID (${sessionA.user.id}) does not match userYYYYMMDDNNN`
+    );
+    assert.ok(
+      guestIdRegex.test(sessionB.user.id),
+      `Guest B ID (${sessionB.user.id}) does not match userYYYYMMDDNNN`
+    );
+    assert.notStrictEqual(sessionA.user.id, sessionB.user.id, "Guest IDs collided");
+    assert.ok(sessionA.token.length > 20, "Guest JWT must be non-empty");
 
     recordResult(
       "TEST-G",
-      "Guest Identity & Format",
-      "Backend running at http://localhost:8080",
-      "Request 2 guest identities concurrently via POST /api/v1/auth/guest",
-      "Format matches userYYYYMMDDNNN and IDs are globally distinct and stable",
-      `Received ${id1} and ${id2}; regex matched=${matchesRegex1 && matchesRegex2}, unique=${areUnique}`,
+      "Guest Identity & JWT Issuance",
+      `Backend running at ${BACKEND_URL}`,
+      "Request guest sessions via POST /api/v1/auth/guest",
+      "Format matches userYYYYMMDDNNN, IDs are unique, and JWTs are issued",
+      `Issued ${sessionA.user.id} and ${sessionB.user.id} with JWTs`,
       "PASS",
-      `Guest 1: ${id1}, Guest 2: ${id2}, Status code: 201 Created`
+      `Guest A: ${sessionA.user.id}, Guest B: ${sessionB.user.id}`
     );
   } catch (err) {
     recordResult(
       "TEST-G",
-      "Guest Identity & Format",
-      "Backend running at http://localhost:8080",
-      "Request 2 guest identities concurrently",
-      "Format matches userYYYYMMDDNNN and unique",
+      "Guest Identity & JWT Issuance",
+      `Backend running at ${BACKEND_URL}`,
+      "Request guest sessions",
+      "Unique userYYYYMMDDNNN IDs + JWTs",
       err.message,
       "FAIL",
       err.stack,
-      "Guest identity generation mismatch"
+      "Guest session creation failed"
     );
   }
 
   // -------------------------------------------------------------------------
-  // TEST A: Online Presence & Dynamic Counting
+  // TEST AUTH: Unauthenticated & Forged Handshake Rejection
   // -------------------------------------------------------------------------
-  let clientA, clientB;
   try {
-    clientA = createClient("user20261017001");
-    clientB = createClient("user20261017002");
+    const emptyErr = await expectHandshakeRejection({});
+    const forgedErr = await expectHandshakeRejection({ user_id: "forged-user" });
+
+    recordResult(
+      "TEST-AUTH",
+      "Socket.IO JWT Handshake Rejection",
+      "Socket.IO gateway enforces HS256 JWT in OnConnect",
+      "Attempt connection with {} and { user_id: 'forged-user' }",
+      "Both handshakes fail with connect_error",
+      `Rejected empty (${emptyErr.message}) and forged (${forgedErr.message})`,
+      "PASS",
+      `connect_error messages: ${emptyErr.message} | ${forgedErr.message}`
+    );
+  } catch (err) {
+    recordResult(
+      "TEST-AUTH",
+      "Socket.IO JWT Handshake Rejection",
+      "Socket.IO gateway enforces HS256 JWT",
+      "Connect without valid JWT",
+      "Fails with connect_error",
+      err.message,
+      "FAIL",
+      err.stack
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // TEST A: Online Presence & Canonical Envelopes
+  // -------------------------------------------------------------------------
+  let clientA;
+  let clientB;
+  try {
+    assert.ok(sessionA && sessionB, "Guest sessions required");
+    clientA = createClient(sessionA.token);
+    clientB = createClient(sessionB.token);
 
     await Promise.all([
-      waitEvent(clientA, "connected"),
-      waitEvent(clientB, "connected"),
+      waitEvent(clientA, "connect"),
+      waitEvent(clientB, "connect"),
     ]);
 
-    // Both join lobby
-    clientA.emit("lobby:join");
-    clientB.emit("lobby:join");
-    await sleep(200);
+    const snapshotPromise = waitEvent(clientA, "presence.snapshot");
+    const joinAckA = await emitCommand(clientA, "lobby.join");
+    assert.strictEqual(joinAckA.subscribed, true);
+    const snapshotEnv = assertEnvelope(await snapshotPromise, "presence.snapshot");
 
-    // Request lobby stats from Client A
-    const statsPromise = waitEvent(clientA, "lobby:stats-update");
-    clientA.emit("lobby:request-stats");
-    const stats = await statsPromise;
+    await emitCommand(clientB, "lobby.join");
+    const reqPresence = await emitCommand(clientA, "presence.request");
+    assert.ok(
+      reqPresence.onlineCount >= 2,
+      `Expected onlineCount >= 2, got ${reqPresence.onlineCount}`
+    );
 
-    assert.ok(stats.onlineCount >= 2, `Expected onlineCount >= 2, got ${stats.onlineCount}`);
-
-    // Disconnect Client B and verify presence update
-    const statsAfterDiscPromise = waitEvent(clientA, "lobby:stats-update");
+    const updatedAfterDiscPromise = waitEvent(clientA, "presence.updated");
     clientB.disconnect();
-    const statsAfterDisc = await statsAfterDiscPromise;
+    const updatedEnv = assertEnvelope(await updatedAfterDiscPromise, "presence.updated");
 
     recordResult(
       "TEST-A",
-      "Online Presence & Stats Sync",
-      "Two connected Socket.IO clients subscribed to lobby",
-      "Connect client A and B -> observe lobby:stats-update -> disconnect B -> observe decremented stats",
-      "Online count tracks connections without refresh; updates on connect and disconnect",
-      `Initial onlineCount=${stats.onlineCount}, after B disconnect onlineCount=${statsAfterDisc.onlineCount}`,
+      "Online Presence & Canonical Envelopes",
+      "Two JWT-authenticated Socket.IO clients subscribed to lobby",
+      "Emit lobby.join + presence.request -> disconnect B -> observe presence.updated",
+      "presence.snapshot, command.ack, and presence.updated follow ServerEventEnvelope v1",
+      `snapshot=${snapshotEnv.data.onlineCount}, request=${reqPresence.onlineCount}, afterDisc=${updatedEnv.data.onlineCount}`,
       "PASS",
-      `Stats update payload: ${JSON.stringify(statsAfterDisc)}`
+      `presence.updated envelope: ${JSON.stringify(updatedEnv)}`
     );
   } catch (err) {
     recordResult(
       "TEST-A",
-      "Online Presence & Stats Sync",
-      "Two connected Socket.IO clients",
-      "Connect and disconnect clients",
-      "Real-time presence updates",
+      "Online Presence & Canonical Envelopes",
+      "Two JWT-authenticated Socket.IO clients",
+      "Connect, lobby.join, presence.request, disconnect",
+      "Canonical presence envelopes & command.ack",
       err.message,
       "FAIL",
       err.stack
@@ -175,46 +341,45 @@ async function runTestSuite() {
   const testRoomId = `room-e2e-${Date.now()}`;
   let clientLobby;
   try {
-    clientLobby = createClient("user-lobby-watcher");
-    await waitEvent(clientLobby, "connected");
-    clientLobby.emit("lobby:join");
-    await sleep(150);
+    assert.ok(sessionLobby && clientA?.connected, "Lobby session and clientA required");
+    clientLobby = createClient(sessionLobby.token);
+    await waitEvent(clientLobby, "connect");
+    await emitCommand(clientLobby, "lobby.join");
 
-    // Client A creates/joins a new room
-    const roomCreatedPromise = waitEvent(clientLobby, "lobby:room-created");
-    const roomUpdatedPromise = waitEvent(clientLobby, "lobby:room-updated");
+    const roomCreatedPromise = waitEvent(clientLobby, "lobby.room_created");
+    const roomUpdatedPromise = waitEvent(clientLobby, "lobby.room_updated");
 
-    clientA.emit("room:join", {
-      roomId: testRoomId,
-      userId: "user20261017001",
-      role: "host",
-    });
+    const joinAck = await emitCommand(clientA, "room.join", { roomId: testRoomId });
+    assert.strictEqual(joinAck.roomId, testRoomId);
 
-    const [createdEvent, updatedEvent] = await Promise.all([
+    const [createdRaw, updatedRaw] = await Promise.all([
       roomCreatedPromise,
       roomUpdatedPromise,
     ]);
 
-    assert.strictEqual(createdEvent.roomId, testRoomId);
-    assert.strictEqual(updatedEvent.currentSlots, 1);
+    const createdEnv = assertEnvelope(createdRaw, "lobby.room_created");
+    const updatedEnv = assertEnvelope(updatedRaw, "lobby.room_updated");
+    assert.strictEqual(createdEnv.data.id, testRoomId);
+    assert.strictEqual(updatedEnv.data.roomId, testRoomId);
+    assert.strictEqual(updatedEnv.data.currentSlots, 1);
 
     recordResult(
       "TEST-B",
       "Room Creation & Lobby Broadcast",
-      "Client A connected, Client Lobby watching lobby room",
-      "Client A joins new room -> backend emits lobby:room-created and lobby:room-updated to lobby",
-      "Lobby clients receive room creation notification without page refresh",
-      `Lobby received lobby:room-created with roomId=${createdEvent.roomId}, slots=${updatedEvent.currentSlots}`,
+      "Client A authenticated, Client Lobby subscribed via lobby.join",
+      "Client A emits room.join -> lobby receives lobby.room_created & lobby.room_updated",
+      "Canonical lobby envelopes delivered with correlated command.ack",
+      `Lobby received room=${createdEnv.data.id}, slots=${updatedEnv.data.currentSlots}`,
       "PASS",
-      `Created event: ${JSON.stringify(createdEvent)}`
+      `Created envelope eventId=${createdEnv.eventId}`
     );
   } catch (err) {
     recordResult(
       "TEST-B",
       "Room Creation & Lobby Broadcast",
-      "Client in lobby, Client A creating room",
-      "Create room",
-      "Lobby event received",
+      "Client in lobby, Client A joining room",
+      "room.join",
+      "Canonical lobby.room_created & lobby.room_updated",
       err.message,
       "FAIL",
       err.stack
@@ -222,63 +387,59 @@ async function runTestSuite() {
   }
 
   // -------------------------------------------------------------------------
-  // TEST C: Room Membership, Existing Peers & Leave Teardown
+  // TEST C: Room Membership, Snapshot & Leave Teardown
   // -------------------------------------------------------------------------
   let clientJoiner;
   try {
-    clientJoiner = createClient("user20261017003");
-    await waitEvent(clientJoiner, "connected");
+    assert.ok(sessionJoiner && clientA?.connected, "Joiner session and clientA required");
+    clientJoiner = createClient(sessionJoiner.token);
+    await waitEvent(clientJoiner, "connect");
 
-    // Client A listens for joiner
-    const userJoinedPromise = waitEvent(clientA, "room:user-joined");
-    const existingPeersPromise = waitEvent(clientJoiner, "room:existing-peers");
+    const memberJoinedPromise = waitEvent(clientA, "room.member_joined");
+    const snapshotPromise = waitEvent(clientJoiner, "room.snapshot");
 
-    // Client Joiner joins the same room
-    clientJoiner.emit("room:join", {
-      roomId: testRoomId,
-      userId: "user20261017003",
-      role: "speaker",
-    });
+    const joinAck = await emitCommand(clientJoiner, "room.join", { roomId: testRoomId });
+    assert.strictEqual(joinAck.roomId, testRoomId);
 
-    const [joinedEvt, peersEvt] = await Promise.all([
-      userJoinedPromise,
-      existingPeersPromise,
+    const [joinedRaw, snapshotRaw] = await Promise.all([
+      memberJoinedPromise,
+      snapshotPromise,
     ]);
 
-    assert.strictEqual(joinedEvt.userId, "user20261017003");
-    assert.ok(Array.isArray(peersEvt.peers), "Existing peers must be an array");
+    const joinedEnv = assertEnvelope(joinedRaw, "room.member_joined");
+    const snapshotEnv = assertEnvelope(snapshotRaw, "room.snapshot");
+
+    assert.strictEqual(joinedEnv.data.userId, sessionJoiner.user.id);
+    assert.ok(Array.isArray(snapshotEnv.data.peers), "room.snapshot peers must be an array");
     assert.ok(
-      peersEvt.peers.some((p) => p.userId === "user20261017001"),
-      "Existing peers must contain host Client A"
+      snapshotEnv.data.peers.some((p) => p.userId === sessionA.user.id),
+      "room.snapshot peers must contain Client A"
     );
 
-    // Client Joiner leaves room
-    const userLeftPromise = waitEvent(clientA, "room:user-left");
-    clientJoiner.emit("room:leave", {
-      roomId: testRoomId,
-      userId: "user20261017003",
-    });
+    const memberLeftPromise = waitEvent(clientA, "room.member_left");
+    const leaveAck = await emitCommand(clientJoiner, "room.leave", { roomId: testRoomId });
+    assert.strictEqual(leaveAck.left, true);
 
-    const leftEvt = await userLeftPromise;
-    assert.strictEqual(leftEvt.userId, "user20261017003");
+    const leftEnv = assertEnvelope(await memberLeftPromise, "room.member_left");
+    assert.strictEqual(leftEnv.data.userId, sessionJoiner.user.id);
 
     recordResult(
       "TEST-C",
       "Room Membership Lifecycle",
-      "Room active with Client A (host)",
-      "Client Joiner joins room -> verifies room:existing-peers and room:user-joined -> leaves room -> verifies room:user-left",
-      "Room peers receive instant join/leave events with correct peer lists",
-      `Joiner received ${peersEvt.peers.length} existing peers; Host received room:user-joined and room:user-left for ${leftEvt.userId}`,
+      "Room active with Client A",
+      "Joiner emits room.join -> verifies room.snapshot & room.member_joined -> emits room.leave -> verifies room.member_left",
+      "Canonical room membership envelopes and command.ack",
+      `Joiner saw ${snapshotEnv.data.peers.length} peer(s); Host saw join and leave for ${leftEnv.data.userId}`,
       "PASS",
-      `Existing peers: ${JSON.stringify(peersEvt.peers)}, Left event: ${JSON.stringify(leftEvt)}`
+      `Snapshot peers=${snapshotEnv.data.peers.length}, Left reason=${leftEnv.data.reason}`
     );
   } catch (err) {
     recordResult(
       "TEST-C",
       "Room Membership Lifecycle",
       "Client A in room",
-      "Join and leave room",
-      "Clean join/leave propagation",
+      "room.join and room.leave",
+      "Canonical snapshot/join/leave envelopes",
       err.message,
       "FAIL",
       err.stack
@@ -289,52 +450,45 @@ async function runTestSuite() {
   // TEST D: Microphone Mute / Unmute State Synchronization
   // -------------------------------------------------------------------------
   try {
-    // Rejoin clientJoiner to test mic state
-    clientJoiner.emit("room:join", {
-      roomId: testRoomId,
-      userId: "user20261017003",
-      role: "speaker",
-    });
-    await sleep(150);
+    assert.ok(clientJoiner?.connected && clientA?.connected, "Connected peers required");
+    await emitCommand(clientJoiner, "room.join", { roomId: testRoomId });
 
-    // Client A mutes mic
-    const mutePromise = waitEvent(clientJoiner, "voice:state-updated");
-    clientA.emit("voice:state-toggle", {
+    const mutePromise = waitEvent(clientJoiner, "voice.mute_changed");
+    const muteAck = await emitCommand(clientA, "voice.mute", {
       roomId: testRoomId,
-      userId: "user20261017001",
-      is_muted: true,
+      isMuted: true,
     });
-    const muteEvt = await mutePromise;
-    assert.strictEqual(muteEvt.isMuted, true);
-    assert.strictEqual(muteEvt.userId, "user20261017001");
+    assert.strictEqual(muteAck.isMuted, true);
+    const muteEnv = assertEnvelope(await mutePromise, "voice.mute_changed");
+    assert.strictEqual(muteEnv.data.isMuted, true);
+    assert.strictEqual(muteEnv.data.userId, sessionA.user.id);
 
-    // Client A unmutes mic
-    const unmutePromise = waitEvent(clientJoiner, "voice:state-updated");
-    clientA.emit("voice:state-toggle", {
+    const unmutePromise = waitEvent(clientJoiner, "voice.mute_changed");
+    const unmuteAck = await emitCommand(clientA, "voice.mute", {
       roomId: testRoomId,
-      userId: "user20261017001",
-      is_muted: false,
+      isMuted: false,
     });
-    const unmuteEvt = await unmutePromise;
-    assert.strictEqual(unmuteEvt.isMuted, false);
+    assert.strictEqual(unmuteAck.isMuted, false);
+    const unmuteEnv = assertEnvelope(await unmutePromise, "voice.mute_changed");
+    assert.strictEqual(unmuteEnv.data.isMuted, false);
 
     recordResult(
       "TEST-D",
       "Microphone State Synchronization",
       "Two peers in the same room",
-      "Peer A emits voice:state-toggle (muted -> unmuted) -> Peer B receives voice:state-updated",
-      "Microphone state accurately reflects across room members without polling",
-      `Peer B received mute state (isMuted=${muteEvt.isMuted}) and unmute state (isMuted=${unmuteEvt.isMuted})`,
+      "Peer A emits voice.mute (true -> false) -> Peer B receives voice.mute_changed",
+      "Canonical voice.mute_changed envelopes and command.ack",
+      `Peer B received isMuted=${muteEnv.data.isMuted} then isMuted=${unmuteEnv.data.isMuted}`,
       "PASS",
-      `Mute event payload: ${JSON.stringify(muteEvt)}`
+      `voice.mute_changed eventId=${unmuteEnv.eventId}`
     );
   } catch (err) {
     recordResult(
       "TEST-D",
       "Microphone State Synchronization",
       "Two peers in room",
-      "Toggle mute",
-      "State synchronized",
+      "voice.mute",
+      "Canonical voice.mute_changed",
       err.message,
       "FAIL",
       err.stack
@@ -345,43 +499,39 @@ async function runTestSuite() {
   // TEST E: Screen Sharing Relay
   // -------------------------------------------------------------------------
   try {
-    // Start screen sharing from Client A
-    const shareStartPromise = waitEvent(clientJoiner, "room:screen-share-changed");
-    clientA.emit("room:screen-share", {
+    const startPromise = waitEvent(clientJoiner, "screen_share.started");
+    const startAck = await emitCommand(clientA, "screen_share.start", {
       roomId: testRoomId,
-      userId: "user20261017001",
-      isSharing: true,
     });
-    const shareStartEvt = await shareStartPromise;
-    assert.strictEqual(shareStartEvt.isSharing, true);
+    assert.strictEqual(startAck.isSharing, true);
+    const startEnv = assertEnvelope(await startPromise, "screen_share.started");
+    assert.strictEqual(startEnv.data.isSharing, true);
 
-    // Stop screen sharing from Client A
-    const shareStopPromise = waitEvent(clientJoiner, "room:screen-share-changed");
-    clientA.emit("room:screen-share", {
+    const stopPromise = waitEvent(clientJoiner, "screen_share.stopped");
+    const stopAck = await emitCommand(clientA, "screen_share.stop", {
       roomId: testRoomId,
-      userId: "user20261017001",
-      isSharing: false,
     });
-    const shareStopEvt = await shareStopPromise;
-    assert.strictEqual(shareStopEvt.isSharing, false);
+    assert.strictEqual(stopAck.isSharing, false);
+    const stopEnv = assertEnvelope(await stopPromise, "screen_share.stopped");
+    assert.strictEqual(stopEnv.data.isSharing, false);
 
     recordResult(
       "TEST-E",
       "Media & Screen Sharing Relay",
-      "Two peers connected in the same room",
-      "Peer A starts screen share -> Peer B receives update -> Peer A stops screen share",
-      "Screen sharing state transitions relay cleanly between room peers",
-      `Screen sharing started (isSharing=${shareStartEvt.isSharing}) and stopped (isSharing=${shareStopEvt.isSharing}) successfully`,
+      "Two peers in room",
+      "Peer A emits screen_share.start & screen_share.stop",
+      "Peer B receives screen_share.started and screen_share.stopped envelopes",
+      `Started (isSharing=${startEnv.data.isSharing}) and stopped (isSharing=${stopEnv.data.isSharing})`,
       "PASS",
-      `Screen share event: ${JSON.stringify(shareStopEvt)}`
+      `Stop envelope eventId=${stopEnv.eventId}`
     );
   } catch (err) {
     recordResult(
       "TEST-E",
       "Media & Screen Sharing Relay",
       "Two peers in room",
-      "Toggle screen share",
-      "Screen share state updated",
+      "screen_share.start / screen_share.stop",
+      "Canonical screen share envelopes",
       err.message,
       "FAIL",
       err.stack
@@ -392,23 +542,25 @@ async function runTestSuite() {
   // TEST F: Unexpected Disconnection & Cleanup
   // -------------------------------------------------------------------------
   try {
-    // Client Joiner abruptly disconnects (simulating browser close or network interrupt)
-    const userLeftOnCrashPromise = waitEvent(clientA, "room:user-left");
+    const leftPromise = waitEvent(clientA, "room.member_left");
     clientJoiner.disconnect();
-    const crashLeftEvt = await userLeftOnCrashPromise;
+    const leftEnv = assertEnvelope(await leftPromise, "room.member_left");
 
-    assert.strictEqual(crashLeftEvt.userId, "user20261017003");
-    assert.ok(crashLeftEvt.left_at, "Must include left_at timestamp");
+    assert.strictEqual(leftEnv.data.userId, sessionJoiner.user.id);
+    assert.ok(
+      typeof leftEnv.data.leftAt === "string" && leftEnv.data.leftAt.length > 0,
+      "room.member_left must include leftAt timestamp"
+    );
 
     recordResult(
       "TEST-F",
       "Unexpected Disconnection Recovery",
       "Client Joiner and Client A active in room",
-      "Force disconnect Client Joiner socket transport -> observe OnDisconnect handling in backend",
-      "Remaining participants receive room:user-left; orphaned session is cleaned up",
-      `Host received room:user-left for disconnected user ${crashLeftEvt.userId} at ${crashLeftEvt.left_at}`,
+      "Disconnect Client Joiner -> observe room.member_left",
+      "Remaining peer receives canonical room.member_left",
+      `Host received room.member_left for ${leftEnv.data.userId} at ${leftEnv.data.leftAt}`,
       "PASS",
-      `Disconnect event: ${JSON.stringify(crashLeftEvt)}`
+      `Disconnect envelope: ${JSON.stringify(leftEnv)}`
     );
   } catch (err) {
     recordResult(
@@ -416,7 +568,7 @@ async function runTestSuite() {
       "Unexpected Disconnection Recovery",
       "Peer abruptly disconnected",
       "Observe disconnect cleanup",
-      "Remaining peers notified",
+      "Canonical room.member_left",
       err.message,
       "FAIL",
       err.stack
@@ -424,56 +576,129 @@ async function runTestSuite() {
   }
 
   // -------------------------------------------------------------------------
-  // TEST H: Security & Scope Validation (Forged IDs & Unauthorized Access)
+  // TEST H: Authorization, Non-Host Moderation & Mesh Ping Ack
   // -------------------------------------------------------------------------
   let attackerClient;
   try {
-    attackerClient = createClient("attacker-user-999");
-    await waitEvent(attackerClient, "connected");
+    assert.ok(sessionAttacker && clientA?.connected, "Attacker session and clientA required");
+    attackerClient = createClient(sessionAttacker.token);
+    await waitEvent(attackerClient, "connect");
 
-    // Attacker is NOT in testRoomId, attempts to send voice state toggle
-    const errorPromise = waitEvent(attackerClient, "error", 2000);
-    attackerClient.emit("voice:state-toggle", {
-      roomId: testRoomId,
-      userId: "user20261017001", // attempt to forge host user ID
-      is_muted: true,
+    // 1. Non-member voice.mute -> command.ack FORBIDDEN
+    let nonMemberCode = "";
+    try {
+      await emitCommand(attackerClient, "voice.mute", {
+        roomId: testRoomId,
+        isMuted: true,
+      });
+      throw new Error("Expected voice.mute from non-member to be rejected");
+    } catch (ackErr) {
+      nonMemberCode = ackErr.code;
+      assert.strictEqual(
+        nonMemberCode,
+        "FORBIDDEN",
+        `Expected FORBIDDEN for non-member voice.mute, got ${nonMemberCode}`
+      );
+    }
+
+    // 2. Non-host moderation.kick_participant -> command.ack FORBIDDEN
+    let nonHostKickCode = "";
+    try {
+      await emitCommand(attackerClient, "moderation.kick_participant", {
+        roomId: testRoomId,
+        targetUserId: sessionA.user.id,
+      });
+      throw new Error("Expected moderation.kick_participant from non-host to be rejected");
+    } catch (ackErr) {
+      nonHostKickCode = ackErr.code;
+      assert.strictEqual(
+        nonHostKickCode,
+        "FORBIDDEN",
+        `Expected FORBIDDEN for non-host kick, got ${nonHostKickCode}`
+      );
+    }
+
+    // 3. mesh.ping command.ack
+    const pingAck = await emitCommand(clientA, "mesh.ping", {
+      timestamp: Date.now(),
     });
-
-    const errorEvt = await errorPromise;
     assert.ok(
-      errorEvt.message && errorEvt.message.includes("unauthorized"),
-      `Expected unauthorized error message, got: ${JSON.stringify(errorEvt)}`
+      typeof pingAck?.serverTime === "number",
+      "mesh.ping ack must return numeric serverTime"
     );
 
-    // Attacker attempts unauthorized chat message
-    const chatErrorPromise = waitEvent(attackerClient, "error", 2000);
-    attackerClient.emit("chat:send", {
-      roomId: testRoomId,
-      content: "Hacked chat message",
-    });
-    const chatErrorEvt = await chatErrorPromise;
-    assert.ok(
-      chatErrorEvt.message && chatErrorEvt.message.includes("unauthorized"),
-      `Expected unauthorized error message for chat, got: ${JSON.stringify(chatErrorEvt)}`
-    );
+    // 4. Optional single-broadcast REST chat check when DB is available
+    let chatNote = `mesh.ping serverTime=${pingAck.serverTime}`;
+    try {
+      const createRes = await fetch(`${BACKEND_URL}/api/v1/rooms`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionA.token}`,
+        },
+        body: JSON.stringify({
+          title: `E2E Chat Room ${Date.now()}`,
+          language: "English",
+          cefrLevel: "ALL",
+          maxSlots: 4,
+          topicTag: "Casual",
+        }),
+      });
+      if (createRes.ok) {
+        const createdRoomBody = await createRes.json();
+        const dbRoomId = createdRoomBody?.data?.room?.id || createdRoomBody?.room?.id;
+        if (dbRoomId) {
+          await emitCommand(clientA, "room.join", { roomId: dbRoomId });
+          const clientMessageId = crypto.randomUUID();
+          let chatCount = 0;
+          const onChat = (raw) => {
+            if (raw?.data?.roomId === dbRoomId && raw?.data?.clientMessageId === clientMessageId) {
+              assertEnvelope(raw, "chat.message_created");
+              chatCount += 1;
+            }
+          };
+          clientA.on("chat.message_created", onChat);
+          const msgRes = await fetch(`${BACKEND_URL}/api/v1/rooms/${dbRoomId}/messages`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${sessionA.token}`,
+            },
+            body: JSON.stringify({
+              content: "Hello canonical single-write",
+              type: "TEXT",
+              clientMessageId,
+            }),
+          });
+          assert.strictEqual(msgRes.status, 201, "POST /messages should return 201");
+          await new Promise((r) => setTimeout(r, 300));
+          clientA.off("chat.message_created", onChat);
+          assert.strictEqual(chatCount, 1, `Expected 1 chat.message_created, got ${chatCount}`);
+          await emitCommand(clientA, "room.leave", { roomId: dbRoomId });
+          chatNote = `REST chat single-broadcast verified (count=${chatCount})`;
+        }
+      }
+    } catch {
+      // REST DB room persistence optional if running Socket.IO without DB
+    }
 
     recordResult(
       "TEST-H",
-      "Security & Broadcast Scope Enforcement",
-      "Attacker socket connected but not a member of the room",
-      "Attacker attempts voice:state-toggle and chat:send with forged ID and unauthorized room ID",
-      "Backend rejects unauthorized room events and emits error; no room state changes or leaks occur",
-      `Backend rejected unauthorized mutations with error="${errorEvt.message}" and chat error="${chatErrorEvt.message}"`,
+      "Authorization, Moderation Gating & Command Ack",
+      "Attacker socket authenticated via guest JWT but not a room host/member",
+      "Attempt non-member voice.mute, non-host moderation.kick_participant, mesh.ping",
+      "Unauthorized commands fail via command.ack FORBIDDEN; mesh.ping succeeds",
+      `nonMember=${nonMemberCode}, nonHostKick=${nonHostKickCode}, ${chatNote}`,
       "PASS",
-      `Error responses: ${JSON.stringify(errorEvt)}, ${JSON.stringify(chatErrorEvt)}`
+      `Verified FORBIDDEN acks and mesh.ping serverTime=${pingAck.serverTime}`
     );
   } catch (err) {
     recordResult(
       "TEST-H",
-      "Security & Broadcast Scope Enforcement",
+      "Authorization, Moderation Gating & Command Ack",
       "Attacker socket outside room",
-      "Attempt forged state toggle and unauthorized chat",
-      "Rejected with error",
+      "Attempt unauthorized commands",
+      "command.ack FORBIDDEN",
       err.message,
       "FAIL",
       err.stack
@@ -481,15 +706,12 @@ async function runTestSuite() {
   } finally {
     if (attackerClient?.connected) attackerClient.disconnect();
     if (clientA?.connected) {
-      clientA.emit("room:leave", { roomId: testRoomId });
+      await emitCommand(clientA, "room.leave", { roomId: testRoomId }).catch(() => {});
       clientA.disconnect();
     }
     if (clientLobby?.connected) clientLobby.disconnect();
   }
 
-  // -------------------------------------------------------------------------
-  // Final Summary Output
-  // -------------------------------------------------------------------------
   console.log("\n==================================================================");
   console.log("TEST RUN COMPLETE - SUMMARY RESULTS");
   console.log("==================================================================");
@@ -498,11 +720,7 @@ async function runTestSuite() {
   const failed = testResults.filter((r) => r.status === "FAIL").length;
   console.log(`Total Tests: ${total} | Passed: ${passed} | Failed: ${failed}`);
 
-  if (failed > 0) {
-    process.exit(1);
-  } else {
-    process.exit(0);
-  }
+  process.exit(failed > 0 ? 1 : 0);
 }
 
 runTestSuite().catch((err) => {

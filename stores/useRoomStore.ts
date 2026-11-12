@@ -9,6 +9,8 @@ interface RoomState {
   setCurrentRoom: (room: VoiceRoom | null) => void;
   joinRoom: (room: VoiceRoom, user?: User | null) => void;
   leaveRoom: () => void;
+  updateRoomSettings: (roomId: string, updates: Partial<VoiceRoom>) => void;
+  updateRoomHost: (roomId: string, newHostId: string) => void;
   updateParticipant: (participantId: string, updates: Partial<Participant>) => void;
   addParticipant: (participant: Participant) => void;
   removeParticipant: (participantId: string) => void;
@@ -36,7 +38,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       room.host.id === currentUserId ||
       room.participants.some((p) => p.id === currentUserId && p.isHost);
 
-    let participants = [...room.participants];
+    // Update existing user participant if present, otherwise prepend
+    let participants = room.participants.map((p) =>
+      p.id === currentUserId ? { ...p, ...(user || {}), isHost } : p
+    );
     if (user && !participants.some((p) => p.id === user.id)) {
       const userParticipant: Participant = {
         ...user,
@@ -67,6 +72,44 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       isHost: false,
       isJoining: false,
     }),
+
+  updateRoomSettings: (roomId, updates) => {
+    const { currentRoom } = get();
+    if (!currentRoom || currentRoom.id !== roomId) return;
+
+    set({
+      currentRoom: {
+        ...currentRoom,
+        ...updates,
+      },
+    });
+  },
+
+  updateRoomHost: (roomId, newHostId) => {
+    const { currentRoom } = get();
+    if (!currentRoom || currentRoom.id !== roomId) return;
+
+    const currentUserId = useAuthStore.getState().user?.id || "guest";
+    const nextHostParticipant = currentRoom.participants.find(
+      (p) => p.id === newHostId
+    );
+    const nextHost = nextHostParticipant
+      ? { ...currentRoom.host, ...nextHostParticipant }
+      : { ...currentRoom.host, id: newHostId };
+    const updatedParticipants = currentRoom.participants.map((p) => ({
+      ...p,
+      isHost: p.id === newHostId,
+    }));
+
+    set({
+      currentRoom: {
+        ...currentRoom,
+        host: nextHost,
+        participants: updatedParticipants,
+      },
+      isHost: newHostId === currentUserId,
+    });
+  },
 
   updateParticipant: (participantId, updates) => {
     const { currentRoom } = get();

@@ -7,6 +7,14 @@ import {
   type IceDiagnosticState,
 } from "./ice";
 import { User } from "@/types";
+import type {
+  RoomMemberJoinedDTO,
+  RoomMemberLeftDTO,
+  RoomSnapshotDTO,
+  WebRTCAnswerDTO,
+  WebRTCIceCandidateDTO,
+  WebRTCOfferDTO,
+} from "@/types/socket";
 
 export interface RemotePeerMedia {
   socketId: string;
@@ -44,7 +52,7 @@ export class WebRTCMeshManager {
   public onPeerSpeaking?: (socketId: string, userId: string, isSpeaking: boolean, level: number) => void;
   public onAudioPlaybackBlocked?: (blocked: boolean) => void;
   public onIceDiagnostic?: (diagnostic: IceDiagnosticState | null) => void;
-  private signalingHandlers: Array<{ event: string; handler: (...args: any[]) => void }> = [];
+  private signalingUnsubs: Array<() => void> = [];
 
   // Real-time remote peer voice recognition analysers
   private peerAnalysers: Map<
@@ -188,7 +196,9 @@ export class WebRTCMeshManager {
     }
 
     if (this.roomId) {
-      socketService.sendScreenShare(this.roomId, !!stream);
+      socketService.setScreenShare(this.roomId, !!stream).catch((err) => {
+        console.warn("[WebRTC] Screen share ack warning:", err);
+      });
     }
   }
 
@@ -243,9 +253,9 @@ export class WebRTCMeshManager {
   /**
    * Join a room and initialize WebRTC mesh
    */
-  public async joinRoom(roomId: string, user: Partial<User>): Promise<void> {
+  public async joinRoom(roomId: string, user?: Partial<User>): Promise<void> {
     this.roomId = roomId;
-    this.currentUser = user;
+    this.currentUser = user || null;
     const joinGeneration = ++this.iceGeneration;
 
     // Resolve dynamic ICE configuration and acquire mic stream
@@ -258,64 +268,110 @@ export class WebRTCMeshManager {
       return;
     }
 
-    // Register socket listeners for WebRTC signaling
-    const socket = socketService.connect();
-    this.setupSocketSignaling(socket);
+    // Register socket listeners BEFORE emitting room.join so room.snapshot is never missed
+    socketService.connect();
+    this.setupSocketSignaling();
 
-    // Join room over socket
-    socketService.joinRoom(roomId, user);
+    try {
+      await socketService.joinRoom(roomId);
+      if (this.roomId !== roomId || this.iceGeneration !== joinGeneration) {
+        this.clearSignalingListeners();
+        socketService.leaveRoom(roomId).catch(() => {});
+      }
+    } catch (err) {
+      this.clearSignalingListeners();
+      if (this.roomId === roomId) {
+        this.roomId = null;
+      }
+      if (this.localStream) {
+        this.localStream.getTracks().forEach((track) => track.stop());
+        this.localStream = null;
+      }
+      throw err;
+    }
   }
 
-  private setupSocketSignaling(socket: any): void {
-    const listen = (event: string, handler: (...args: any[]) => void) => {
-      socket.on(event, handler);
-      this.signalingHandlers.push({ event, handler });
-    };
+  private clearSignalingListeners(): void {
+    this.signalingUnsubs.forEach((unsub) => {
+      try {
+        unsub();
+      } catch {}
+    });
+    this.signalingUnsubs = [];
+  }
+
+  private setupSocketSignaling(): void {
+    this.clearSignalingListeners();
 
     // 1. Existing peers in room: prepare connection and initiate offer to each
-    listen("room:existing-peers", async ({ peers }: { peers: Array<{ socketId: string; userId: string; user: any }> }) => {
-      console.log(`[WebRTC] Received ${peers.length} existing peers:`, peers);
-      for (const peer of peers) {
-        this.getOrCreatePeerConnection(peer.socketId, peer.userId);
-        await this.createOfferToPeer(peer.socketId, peer.userId);
-      }
-    });
+    this.signalingUnsubs.push(
+      socketService.onEvent("room.snapshot", async (data: RoomSnapshotDTO) => {
+        if (this.roomId && data.roomId !== this.roomId) return;
+        const mySocketId = socketService.getSocketId();
+        const peers = Array.isArray(data.peers) ? data.peers : [];
+        console.log(`[WebRTC] Received ${peers.length} existing peers:`, peers);
+        for (const peer of peers) {
+          if (peer.socketId === mySocketId) continue;
+          this.getOrCreatePeerConnection(peer.socketId, peer.userId);
+          await this.createOfferToPeer(peer.socketId, peer.userId);
+        }
+      })
+    );
 
     // 1b. New peer arrived in room: existing peer initiates offer to the newcomer
-    listen("room:user-joined", async ({ socketId, userId }: { socketId: string; userId: string }) => {
-      console.log(`[WebRTC] New peer joined room (${socketId}, ${userId}), initiating offer...`);
-      await this.createOfferToPeer(socketId, userId);
-    });
+    this.signalingUnsubs.push(
+      socketService.onEvent(
+        "room.member_joined",
+        async (data: RoomMemberJoinedDTO) => {
+          if (this.roomId && data.roomId !== this.roomId) return;
+          if (data.socketId === socketService.getSocketId()) return;
+          console.log(
+            `[WebRTC] New peer joined room (${data.socketId}, ${data.userId}), initiating offer...`
+          );
+          await this.createOfferToPeer(data.socketId, data.userId);
+        }
+      )
+    );
 
     // 2. Incoming SDP Offer
-    listen("webrtc:offer", async (data: any) => {
-      const senderSocketId = data.senderSocketId;
-      const userId = data.userId || data.senderId || "";
-      const sdp = data.sdp;
-      console.log(`[WebRTC] Received offer from ${senderSocketId} (${userId})`);
-      await this.handleOffer(senderSocketId, userId, sdp);
-    });
+    this.signalingUnsubs.push(
+      socketService.onEvent("webrtc.offer", async (data: WebRTCOfferDTO) => {
+        if (this.roomId && data.roomId !== this.roomId) return;
+        console.log(
+          `[WebRTC] Received offer from ${data.senderSocketId} (${data.senderUserId})`
+        );
+        await this.handleOffer(data.senderSocketId, data.senderUserId, data.sdp);
+      })
+    );
 
     // 3. Incoming SDP Answer
-    listen("webrtc:answer", async (data: any) => {
-      const senderSocketId = data.senderSocketId;
-      const sdp = data.sdp;
-      console.log(`[WebRTC] Received answer from ${senderSocketId}`);
-      await this.handleAnswer(senderSocketId, sdp);
-    });
+    this.signalingUnsubs.push(
+      socketService.onEvent("webrtc.answer", async (data: WebRTCAnswerDTO) => {
+        if (this.roomId && data.roomId !== this.roomId) return;
+        console.log(`[WebRTC] Received answer from ${data.senderSocketId}`);
+        await this.handleAnswer(data.senderSocketId, data.sdp);
+      })
+    );
 
     // 4. Incoming ICE Candidate
-    listen("webrtc:ice-candidate", async (data: any) => {
-      const senderSocketId = data.senderSocketId;
-      const candidate = data.candidate;
-      await this.handleIceCandidate(senderSocketId, candidate);
-    });
+    this.signalingUnsubs.push(
+      socketService.onEvent(
+        "webrtc.ice_candidate",
+        async (data: WebRTCIceCandidateDTO) => {
+          if (this.roomId && data.roomId !== this.roomId) return;
+          await this.handleIceCandidate(data.senderSocketId, data.candidate);
+        }
+      )
+    );
 
     // 5. Peer Left
-    listen("room:user-left", ({ socketId, userId }: { socketId: string; userId: string }) => {
-      console.log(`[WebRTC] Peer ${socketId} left room`);
-      this.closePeer(socketId, userId);
-    });
+    this.signalingUnsubs.push(
+      socketService.onEvent("room.member_left", (data: RoomMemberLeftDTO) => {
+        if (this.roomId && data.roomId !== this.roomId) return;
+        console.log(`[WebRTC] Peer ${data.socketId} left room`);
+        this.closePeer(data.socketId, data.userId);
+      })
+    );
   }
 
   /**
@@ -398,10 +454,17 @@ export class WebRTCMeshManager {
     // Trickle ICE Candidate Handler
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        socketService.sendIceCandidate({
-          targetSocketId,
-          candidate: event.candidate.toJSON(),
-        });
+        socketService
+          .sendIceCandidate({
+            targetSocketId,
+            candidate: event.candidate.toJSON(),
+          })
+          .catch((err) => {
+            console.warn(
+              `[WebRTC] Failed to relay ICE candidate to ${targetSocketId}:`,
+              err
+            );
+          });
       }
     };
 
@@ -524,11 +587,18 @@ export class WebRTCMeshManager {
 
       await pc.setLocalDescription(offer);
 
-      socketService.sendOffer({
-        targetSocketId,
-        sdp: pc.localDescription || offer,
-        user: this.currentUser as any,
-      });
+      socketService
+        .sendOffer({
+          targetSocketId,
+          sdp: pc.localDescription || offer,
+          user: this.currentUser as any,
+        })
+        .catch((err) => {
+          console.warn(
+            `[WebRTC] Failed to relay offer to ${targetSocketId}:`,
+            err
+          );
+        });
     } catch (err) {
       console.error(`[WebRTC] Failed to create offer to ${targetSocketId}:`, err);
     } finally {
@@ -578,10 +648,17 @@ export class WebRTCMeshManager {
         }
         await pc.setLocalDescription(answer);
 
-        socketService.sendAnswer({
-          targetSocketId: senderSocketId,
-          sdp: answer,
-        });
+        socketService
+          .sendAnswer({
+            targetSocketId: senderSocketId,
+            sdp: answer,
+          })
+          .catch((err) => {
+            console.warn(
+              `[WebRTC] Failed to relay answer to ${senderSocketId}:`,
+              err
+            );
+          });
       } else {
         console.warn(`[WebRTC] Skipping answer creation: signalingState is '${pc.signalingState}', expected 'have-remote-offer'`);
       }
@@ -754,11 +831,7 @@ export class WebRTCMeshManager {
    */
   public destroy(): void {
     // 0. Unbind WebRTC signaling socket listeners
-    const socket = socketService.getSocket();
-    if (socket) {
-      this.signalingHandlers.forEach(({ event, handler }) => socket.off(event, handler));
-    }
-    this.signalingHandlers = [];
+    this.clearSignalingListeners();
 
     // Clean up remote peer audio analysers
     this.peerAnalysers.forEach((_, socketId) => this.cleanupRemoteAudioAnalysis(socketId));
@@ -817,9 +890,9 @@ export class WebRTCMeshManager {
 
     // 5. Notify socket server
     if (this.roomId) {
-      socketService.leaveRoom(this.roomId);
+      socketService.leaveRoom(this.roomId).catch(() => {});
     } else {
-      socketService.leaveRoom();
+      socketService.leaveRoom().catch(() => {});
     }
     this.roomId = null;
   }

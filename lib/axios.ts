@@ -16,6 +16,7 @@ apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     if (typeof window !== "undefined") {
       const token =
+        sessionStorage.getItem("nimble_guest_token") ||
         localStorage.getItem("token") ||
         localStorage.getItem("nimble_auth_token");
       if (token && config.headers) {

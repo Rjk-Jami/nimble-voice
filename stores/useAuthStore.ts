@@ -33,10 +33,33 @@ const DEFAULT_USER: User = {
   isGuest: true,
 };
 
+function getInitialAuthState(): { user: User; isAuthenticated: boolean; isGuest: boolean } {
+  if (typeof window === "undefined") {
+    return { user: DEFAULT_USER, isAuthenticated: false, isGuest: true };
+  }
+  try {
+    const stored = localStorage.getItem("nimble_voice_user");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (!parsed.isGuest) {
+        return { user: parsed, isAuthenticated: true, isGuest: false };
+      }
+    }
+    const sessionStored = sessionStorage.getItem("nimble_voice_guest");
+    if (sessionStored) {
+      const parsedGuest = JSON.parse(sessionStored);
+      return { user: parsedGuest, isAuthenticated: false, isGuest: true };
+    }
+  } catch {}
+  return { user: DEFAULT_USER, isAuthenticated: false, isGuest: true };
+}
+
+const initialAuth = getInitialAuthState();
+
 export const useAuthStore = create<AuthState>((set) => ({
-  user: DEFAULT_USER,
-  isAuthenticated: false,
-  isGuest: true,
+  user: initialAuth.user,
+  isAuthenticated: initialAuth.isAuthenticated,
+  isGuest: initialAuth.isGuest,
 
   initUser: () => {
     if (typeof window === "undefined") return;
@@ -56,7 +79,12 @@ export const useAuthStore = create<AuthState>((set) => ({
       if (sessionStored) {
         const parsedGuest = JSON.parse(sessionStored);
         set({ user: parsedGuest, isAuthenticated: false, isGuest: true });
-        setPresenceAuthenticated(Boolean(localStorage.getItem("token") || localStorage.getItem("nimble_auth_token")));
+        const hasToken = Boolean(
+          sessionStorage.getItem("nimble_guest_token") ||
+          localStorage.getItem("token") ||
+          localStorage.getItem("nimble_auth_token")
+        );
+        setPresenceAuthenticated(hasToken);
         return;
       }
 
@@ -76,8 +104,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       sessionStorage.setItem("nimble_voice_guest", JSON.stringify(guestUser));
       set({ user: guestUser, isAuthenticated: false, isGuest: true });
 
-      // Automatically register guest token with Go backend if no token exists
+      // Automatically register guest token with Go backend if no token exists for this session
       const existingToken =
+        sessionStorage.getItem("nimble_guest_token") ||
         localStorage.getItem("token") ||
         localStorage.getItem("nimble_auth_token");
       if (!existingToken) {
@@ -87,6 +116,7 @@ export const useAuthStore = create<AuthState>((set) => ({
               .post(API_PATHS.AUTH.GUEST_LOGIN, { name: guestUser.name })
               .then((res: any) => {
                 if (res?.token) {
+                  sessionStorage.setItem("nimble_guest_token", res.token);
                   localStorage.setItem("token", res.token);
                   localStorage.setItem("nimble_auth_token", res.token);
                   setPresenceAuthenticated(true);

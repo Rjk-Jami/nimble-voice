@@ -10,6 +10,14 @@ import { VoiceRoom } from "@/types";
 import { useEffect, useMemo } from "react";
 import useSWR from "swr";
 import { socketService } from "@/lib/socket";
+import type {
+  PresenceDTO,
+  RoomDeletedDTO,
+  RoomLobbyUpdateDTO,
+  RoomSettingsUpdatedDTO,
+  RoomSummaryDTO,
+  VoiceSpeakingChangedDTO,
+} from "@/types/socket";
 
 export function useRooms() {
   const {
@@ -77,81 +85,89 @@ export function useRooms() {
 
   // Real-time Socket.IO global presence and lobby room state updates
   useEffect(() => {
-    const socket = socketService.connect();
-    socketService.joinLobby();
+    socketService.connect();
+    socketService.joinLobby().catch(() => {});
 
-    const handlePresenceUpdate = (payload: any) => {
+    const handlePresence = (payload: PresenceDTO) => {
       if (!payload) return;
       setLiveStats({
-        onlineCount: payload.onlineCount ?? payload.online_count,
-        activeRoomsCount: payload.activeRoomsCount ?? payload.active_rooms,
-        liveLanguagesCount: payload.liveLanguagesCount ?? payload.live_languages,
+        onlineCount: payload.onlineCount,
       });
     };
 
-    const handleRoomCreated = (payload: any) => {
-      if (!payload) return;
-      const raw = payload.room || payload;
-      if (raw && (raw.id || raw.ID)) {
-        addRoom(normalizeRoom(raw));
-      }
+    const handleRoomCreated = (payload: RoomSummaryDTO) => {
+      if (!payload?.id) return;
+      addRoom(normalizeRoom(payload));
     };
 
-    const handleRoomUpdated = (payload: any) => {
-      if (!payload) return;
-      const roomId = payload.roomId || payload.room_id || payload.id || payload.ID;
-      if (!roomId) return;
+    const handleRoomUpdated = (payload: RoomLobbyUpdateDTO) => {
+      if (!payload?.roomId) return;
       const updates: Partial<VoiceRoom> = {};
-      if (payload.currentSlots !== undefined) updates.currentSlots = payload.currentSlots;
-      if (payload.current_slots !== undefined) updates.currentSlots = payload.current_slots;
-      if (payload.hasFreeSeats !== undefined) updates.hasFreeSeats = payload.hasFreeSeats;
-      if (payload.has_free_seats !== undefined) updates.hasFreeSeats = payload.has_free_seats;
-      if (payload.status !== undefined) updates.status = payload.status;
-      if (payload.participants !== undefined) updates.participants = payload.participants;
-      updateRoom(roomId, updates);
-    };
-
-    const handleRoomDeleted = (payload: any) => {
-      if (!payload) return;
-      const roomId = payload.roomId || payload.room_id || payload.id || payload.ID;
-      if (roomId) {
-        removeRoom(roomId);
+      if (typeof payload.currentSlots === "number") {
+        updates.currentSlots = payload.currentSlots;
       }
+      if (typeof payload.maxSlots === "number" && payload.maxSlots > 0) {
+        updates.maxSlots = payload.maxSlots;
+      }
+      if (typeof payload.hasFreeSeats === "boolean") {
+        updates.hasFreeSeats = payload.isLocked ? false : payload.hasFreeSeats;
+      } else if (typeof payload.isLocked === "boolean" && payload.isLocked) {
+        updates.hasFreeSeats = false;
+      }
+      if (typeof payload.status === "string" && payload.status.length > 0) {
+        updates.status = payload.status as RoomStatus;
+      }
+      updateRoom(payload.roomId, updates);
     };
 
-    const handleSpeakingChanged = (payload: any) => {
-      if (!payload) return;
-      const roomId = payload.roomId || payload.room_id;
-      const userId = payload.userId || payload.user_id;
-      if (!roomId || !userId) return;
+    const handleRoomDeleted = (payload: RoomDeletedDTO) => {
+      if (!payload?.roomId) return;
+      removeRoom(payload.roomId);
+    };
+
+    const handleRoomSettingsUpdated = (payload: RoomSettingsUpdatedDTO) => {
+      if (!payload?.roomId) return;
+      const updates: Partial<VoiceRoom> = {};
+      if (typeof payload.title === "string") updates.title = payload.title;
+      if (typeof payload.topic === "string") updates.topic = payload.topic;
+      if (typeof payload.status === "string") {
+        updates.status = payload.status as RoomStatus;
+      }
+      if (typeof payload.maxSlots === "number" && payload.maxSlots > 0) {
+        updates.maxSlots = payload.maxSlots;
+      }
+      if (typeof payload.hasFreeSeats === "boolean") {
+        updates.hasFreeSeats = payload.hasFreeSeats;
+      }
+      updateRoom(payload.roomId, updates);
+      useRoomStore.getState().updateRoomSettings(payload.roomId, updates);
+    };
+
+    const handleSpeakingChanged = (payload: VoiceSpeakingChangedDTO) => {
+      if (!payload?.roomId || !payload?.userId) return;
       const currentRooms = useLobbyStore.getState().rooms;
-      const room = currentRooms.find((r) => r.id === roomId);
+      const room = currentRooms.find((r) => r.id === payload.roomId);
       if (room && room.participants) {
-        const isSpeaking = Boolean(payload.isSpeaking ?? payload.speaking);
         const updatedParticipants = room.participants.map((p) =>
-          p.id === userId ? { ...p, isSpeaking } : p
+          p.id === payload.userId ? { ...p, isSpeaking: payload.isSpeaking } : p
         );
-        updateRoom(roomId, { participants: updatedParticipants });
+        updateRoom(payload.roomId, { participants: updatedParticipants });
       }
     };
 
-    socket.on("presence:update", handlePresenceUpdate);
-    socket.on("lobby:stats-update", handlePresenceUpdate);
-    socket.on("lobby:room-created", handleRoomCreated);
-    socket.on("lobby:room-updated", handleRoomUpdated);
-    socket.on("lobby:room-deleted", handleRoomDeleted);
-    socket.on("lobby:room-removed", handleRoomDeleted);
-    socket.on("voice:speaking-changed", handleSpeakingChanged);
+    const unsubs: Array<() => void> = [
+      socketService.onEvent("presence.snapshot", handlePresence),
+      socketService.onEvent("presence.updated", handlePresence),
+      socketService.onEvent("lobby.room_created", handleRoomCreated),
+      socketService.onEvent("lobby.room_updated", handleRoomUpdated),
+      socketService.onEvent("lobby.room_deleted", handleRoomDeleted),
+      socketService.onEvent("room.settings_updated", handleRoomSettingsUpdated),
+      socketService.onEvent("voice.speaking_changed", handleSpeakingChanged),
+    ];
 
     return () => {
-      socket.off("presence:update", handlePresenceUpdate);
-      socket.off("lobby:stats-update", handlePresenceUpdate);
-      socket.off("lobby:room-created", handleRoomCreated);
-      socket.off("lobby:room-updated", handleRoomUpdated);
-      socket.off("lobby:room-deleted", handleRoomDeleted);
-      socket.off("lobby:room-removed", handleRoomDeleted);
-      socket.off("voice:speaking-changed", handleSpeakingChanged);
-      socketService.leaveLobby();
+      unsubs.forEach((unsub) => unsub());
+      socketService.leaveLobby().catch(() => {});
     };
   }, [setLiveStats, addRoom, updateRoom, removeRoom]);
 
@@ -238,21 +254,7 @@ export function useRooms() {
       messages: [],
     };
 
-    // Optimistic local update
-    addRoom(newRoom);
-    joinRoomInStore(newRoom, hostUser);
-    mutate(
-      (curr: any) => {
-        if (curr && Array.isArray(curr.rooms)) {
-          return { ...curr, rooms: [newRoom, ...curr.rooms] };
-        }
-        if (Array.isArray(curr)) {
-          return [newRoom, ...curr];
-        }
-        return { rooms: [newRoom, ...roomsList] };
-      },
-      false
-    );
+    let createdRoom: VoiceRoom = newRoom;
 
     // Persist to backend database via Go REST API
     try {
@@ -260,20 +262,49 @@ export function useRooms() {
       const res: any = await apiClient.post(API_PATHS.ROOMS.CREATE, input);
       if (res?.room) {
         const normalized = normalizeRoom(res.room);
-        newRoom.id = normalized.id;
+        createdRoom = {
+          ...normalized,
+          host: hostUser ? normalizeUser(hostUser) : normalized.host,
+          participants: [
+            {
+              ...(hostUser ? normalizeUser(hostUser) : normalized.host),
+              isHost: true,
+              isSpeaking: false,
+              isMuted: false,
+              isDeafened: false,
+              handRaised: false,
+            },
+          ],
+        };
       }
-      mutate();
     } catch (err) {
       console.warn("Backend room persistence notice:", err);
     }
 
-    return newRoom;
+    // Update store and lobby with the authoritative room
+    addRoom(createdRoom);
+    joinRoomInStore(createdRoom, hostUser);
+    mutate(
+      (curr: any) => {
+        if (curr && Array.isArray(curr.rooms)) {
+          return { ...curr, rooms: [createdRoom, ...curr.rooms.filter((r: any) => r.id !== createdRoom.id)] };
+        }
+        if (Array.isArray(curr)) {
+          return [createdRoom, ...curr.filter((r: any) => r.id !== createdRoom.id)];
+        }
+        return { rooms: [createdRoom, ...roomsList] };
+      },
+      false
+    );
+
+    return createdRoom;
   };
 
   // Helper to ensure guest JWT exists before calling protected endpoints
   const ensureAuthToken = async () => {
     if (typeof window === "undefined") return null;
     let token =
+      sessionStorage.getItem("nimble_guest_token") ||
       localStorage.getItem("token") ||
       localStorage.getItem("nimble_auth_token");
     if (!token) {
@@ -286,6 +317,7 @@ export function useRooms() {
         if (guestRes?.token) {
           const safeToken = String(guestRes.token);
           token = safeToken;
+          sessionStorage.setItem("nimble_guest_token", safeToken);
           localStorage.setItem("token", safeToken);
           localStorage.setItem("nimble_auth_token", safeToken);
           if (guestRes?.user) {

@@ -3,6 +3,8 @@ import { User } from "./user";
 
 export interface ChatMessage {
   id: string;
+  clientMessageId?: string;
+  pending?: boolean;
   roomId: string;
   sender: User | { id: string; name: string; avatarUrl?: string };
   content: string;

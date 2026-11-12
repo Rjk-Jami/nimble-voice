@@ -39,20 +39,72 @@ export function normalizeUser(raw: any): User {
 }
 
 /**
- * Normalizes participant objects.
+ * Normalizes participant objects from legacy REST shapes as well as canonical
+ * PeerSnapshotDTO and RoomMemberJoinedDTO Socket.IO payloads.
  */
 export function normalizeParticipant(raw: any): Participant {
-  const baseUser = normalizeUser(raw.user || raw);
+  if (!raw || typeof raw !== "object") {
+    const fallback = normalizeUser(null);
+    return {
+      ...fallback,
+      isHost: false,
+      isSpeaking: false,
+      isMuted: false,
+      isDeafened: false,
+      handRaised: false,
+      isScreenSharing: false,
+      audioLevel: 0,
+    };
+  }
+
+  const userObj = raw.participant || raw.user || raw;
+  const voice = raw.voiceState || raw.participant || raw;
+  const baseUser = normalizeUser(userObj);
+  const id = raw.userId || raw.user_id || userObj.id || raw.id || baseUser.id;
+  const peerId =
+    raw.socketId ??
+    raw.socket_id ??
+    userObj.socketId ??
+    userObj.socket_id ??
+    raw.peerId ??
+    raw.peer_id;
+
   return {
     ...baseUser,
-    id: raw.id || raw.userId || raw.user_id || baseUser.id,
-    isHost: !!(raw.isHost ?? raw.is_host),
-    isSpeaking: !!(raw.isSpeaking ?? raw.is_speaking),
-    isMuted: !!(raw.isMuted ?? raw.is_muted),
-    isDeafened: !!(raw.isDeafened ?? raw.is_deafened),
-    handRaised: !!(raw.handRaised ?? raw.hand_raised),
-    audioLevel: raw.audioLevel ?? raw.audio_level ?? 0,
-    peerId: raw.peerId ?? raw.peer_id ?? raw.socketId ?? raw.socket_id,
+    id,
+    isHost: !!(userObj.isHost ?? userObj.is_host ?? raw.isHost ?? raw.is_host),
+    isSpeaking: !!(
+      voice.isSpeaking ??
+      voice.is_speaking ??
+      raw.isSpeaking ??
+      raw.is_speaking
+    ),
+    isMuted: !!(voice.isMuted ?? voice.is_muted ?? raw.isMuted ?? raw.is_muted),
+    isDeafened: !!(
+      voice.isDeafened ??
+      voice.is_deafened ??
+      raw.isDeafened ??
+      raw.is_deafened
+    ),
+    handRaised: !!(
+      voice.handRaised ??
+      voice.hand_raised ??
+      raw.handRaised ??
+      raw.hand_raised
+    ),
+    isScreenSharing: !!(
+      voice.isScreenSharing ??
+      voice.is_screen_sharing ??
+      raw.isScreenSharing ??
+      raw.is_screen_sharing
+    ),
+    audioLevel:
+      voice.audioLevel ??
+      voice.audio_level ??
+      raw.audioLevel ??
+      raw.audio_level ??
+      0,
+    peerId,
   };
 }
 
@@ -113,26 +165,69 @@ export function normalizeRoom(raw: any): VoiceRoom {
 }
 
 /**
- * Normalizes chat message objects.
+ * Normalizes message reaction maps, converting null, undefined, legacy [] arrays,
+ * or non-object values into a clean Record<string, string[]> map.
+ */
+export function normalizeReactions(raw: unknown): Record<string, string[]> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {};
+  }
+
+  const normalized: Record<string, string[]> = {};
+  for (const [emoji, users] of Object.entries(raw as Record<string, unknown>)) {
+    if (Array.isArray(users)) {
+      normalized[emoji] = users.filter((u): u is string => typeof u === "string");
+    }
+  }
+  return normalized;
+}
+
+/**
+ * Normalizes chat message objects from canonical ChatMessageDTO or legacy REST shapes.
  */
 export function normalizeMessage(raw: any): ChatMessage {
-  const senderUser = raw.sender || {
-    id: raw.senderId || raw.sender_id || "anonymous",
-    name: raw.senderName || raw.sender_name || "Learner",
-    avatarUrl: raw.senderAvatar || raw.sender_avatar,
+  const senderUser = raw?.sender
+    ? {
+        id: raw.sender.id || raw.senderId || raw.sender_id || "anonymous",
+        name: raw.sender.name || raw.senderName || raw.sender_name || "Learner",
+        avatarUrl:
+          raw.sender.avatarUrl ||
+          raw.sender.avatar_url ||
+          raw.senderAvatar ||
+          raw.sender_avatar,
+      }
+    : {
+        id: raw?.senderId || raw?.sender_id || "anonymous",
+        name: raw?.senderName || raw?.sender_name || "Learner",
+        avatarUrl: raw?.senderAvatar || raw?.sender_avatar,
+      };
+
+  const clientMessageId =
+    typeof raw?.clientMessageId === "string" && raw.clientMessageId.length > 0
+      ? raw.clientMessageId
+      : typeof raw?.client_message_id === "string" &&
+        raw.client_message_id.length > 0
+      ? raw.client_message_id
+      : undefined;
+
+  const message: ChatMessage & { clientMessageId?: string } = {
+    id: String(raw?.id || `msg_${Date.now()}`),
+    ...(clientMessageId ? { clientMessageId } : {}),
+    roomId: raw?.roomId || raw?.room_id || "",
+    sender: senderUser,
+    content: raw?.content || raw?.text || "",
+    type: raw?.type || "TEXT",
+    mediaUrl: raw?.mediaUrl || raw?.media_url,
+    mediaType: raw?.mediaType || raw?.media_type,
+    createdAt:
+      raw?.createdAt ||
+      raw?.created_at ||
+      raw?.timestamp ||
+      new Date().toISOString(),
+    isHighlighted: !!(raw?.isHighlighted ?? raw?.is_highlighted),
+    reactions: normalizeReactions(raw?.reactions),
   };
 
-  return {
-    id: String(raw.id || `msg_${Date.now()}`),
-    roomId: raw.roomId || raw.room_id || "",
-    sender: senderUser,
-    content: raw.content || raw.text || "",
-    type: raw.type || "TEXT",
-    mediaUrl: raw.mediaUrl || raw.media_url,
-    mediaType: raw.mediaType || raw.media_type,
-    createdAt: raw.timestamp || raw.created_at || raw.createdAt || new Date().toISOString(),
-    isHighlighted: !!(raw.isHighlighted ?? raw.is_highlighted),
-    reactions: raw.reactions || {},
-  };
+  return message;
 }
 

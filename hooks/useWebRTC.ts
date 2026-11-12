@@ -3,9 +3,18 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { webrtcMeshManager, RemotePeerMedia } from "@/lib/webrtc";
 import type { IceDiagnosticState } from "@/lib/ice";
+import { normalizeParticipant } from "@/lib/normalize";
 import { socketService } from "@/lib/socket";
 import { useVoiceStore, useRoomStore, useAuthStore } from "@/stores";
-import { User, Participant } from "@/types";
+import { Participant } from "@/types";
+import type {
+  RoomMemberJoinedDTO,
+  RoomMemberLeftDTO,
+  RoomSnapshotDTO,
+  ScreenShareDTO,
+  VoiceMuteChangedDTO,
+  VoiceSpeakingChangedDTO,
+} from "@/types/socket";
 
 export function useWebRTC(roomId?: string) {
   const user = useAuthStore((s) => s.user);
@@ -31,6 +40,7 @@ export function useWebRTC(roomId?: string) {
   const [iceDiagnostic, setIceDiagnostic] = useState<IceDiagnosticState | null>(null);
   const [isRetryingIce, setIsRetryingIce] = useState(false);
   const [iceDiagnosticDismissed, setIceDiagnosticDismissed] = useState(false);
+  const [hasJoinedRoom, setHasJoinedRoom] = useState(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -38,6 +48,12 @@ export function useWebRTC(roomId?: string) {
   const lastSpeakingStateRef = useRef<boolean>(false);
   const lastIceDiagnosticModeRef = useRef<IceDiagnosticState["mode"] | null>(null);
   const mountedRef = useRef<boolean>(false);
+  const hasJoinedRoomRef = useRef<boolean>(false);
+  const lastSyncedVoiceRef = useRef<{
+    isMuted: boolean;
+    isDeafened: boolean;
+    handRaised: boolean;
+  } | null>(null);
 
   const applyIceDiagnostic = useCallback((diagnostic: IceDiagnosticState | null) => {
     if (!diagnostic) {
@@ -59,26 +75,33 @@ export function useWebRTC(roomId?: string) {
 
     let mounted = true;
     mountedRef.current = true;
+    hasJoinedRoomRef.current = false;
+    lastSyncedVoiceRef.current = null;
+    setHasJoinedRoom(false);
     setConnectionStatus("connecting");
 
     const setupMesh = async () => {
+      const unsubs: Array<() => void> = [];
+      let latencyTimer: ReturnType<typeof setInterval> | null = null;
+
+      const cleanupListeners = () => {
+        if (latencyTimer) {
+          clearInterval(latencyTimer);
+          latencyTimer = null;
+        }
+        while (unsubs.length > 0) {
+          const unsub = unsubs.pop();
+          try {
+            unsub?.();
+          } catch {}
+        }
+      };
+
       try {
         webrtcMeshManager.onIceDiagnostic = (diagnostic) => {
           if (!mounted) return;
           applyIceDiagnostic(diagnostic);
         };
-
-        await webrtcMeshManager.joinRoom(roomId, user);
-
-        if (!mounted) return;
-        const stream = webrtcMeshManager.getLocalStream();
-        if (!stream?.getAudioTracks().some((track) => track.readyState === "live")) {
-          throw new Error("No live microphone audio track is available.");
-        }
-        setMediaError(null);
-        setStream(stream);
-        setLocalStream(stream);
-        setConnectionStatus("connected");
 
         const socket = socketService.getSocket();
         setIsSocketConnected(socket.connected);
@@ -87,6 +110,110 @@ export function useWebRTC(roomId?: string) {
         const onDisconnect = () => setIsSocketConnected(false);
         socket.on("connect", onConnect);
         socket.on("disconnect", onDisconnect);
+        unsubs.push(() => {
+          socket.off("connect", onConnect);
+          socket.off("disconnect", onDisconnect);
+        });
+
+        // Register canonical room/voice/screen_share listeners BEFORE room.join so initial room.snapshot is never missed
+        unsubs.push(
+          socketService.onEvent("room.snapshot", (data: RoomSnapshotDTO) => {
+            if (!mounted || (data.roomId && data.roomId !== roomId)) return;
+            if (Array.isArray(data.peers)) {
+              data.peers.forEach((peer) => {
+                if (!peer?.participant || peer.userId === user.id) return;
+                const normalized = normalizeParticipant(peer);
+                addParticipant({
+                  ...normalized,
+                  isHost: Boolean(peer.participant.isHost),
+                });
+              });
+            }
+            if (data.room) {
+              useRoomStore.getState().updateRoomSettings(roomId, {
+                hasFreeSeats: data.isLocked ? false : data.room.hasFreeSeats,
+              });
+            } else if (data.isLocked) {
+              useRoomStore.getState().updateRoomSettings(roomId, {
+                hasFreeSeats: false,
+              });
+            }
+          })
+        );
+
+        unsubs.push(
+          socketService.onEvent("room.member_joined", (data: RoomMemberJoinedDTO) => {
+            if (!mounted || data.roomId !== roomId || data.userId === user.id) return;
+            const participant = normalizeParticipant(data);
+            addParticipant({
+              ...participant,
+              isHost: Boolean(data.participant?.isHost),
+            });
+          })
+        );
+
+        unsubs.push(
+          socketService.onEvent("room.member_left", (data: RoomMemberLeftDTO) => {
+            if (!mounted || data.roomId !== roomId) return;
+            setRemotePeers((prev) => prev.filter((p) => p.socketId !== data.socketId));
+            setRemoteScreenStream((prev) => (prev?.userId === data.userId ? null : prev));
+            removeParticipant(data.userId);
+          })
+        );
+
+        unsubs.push(
+          socketService.onEvent("voice.speaking_changed", (data: VoiceSpeakingChangedDTO) => {
+            if (!mounted || data.roomId !== roomId) return;
+            setSpeaking(data.userId, data.isSpeaking);
+            setAudioLevel(data.userId, data.level);
+            updateParticipant(data.userId, { isSpeaking: data.isSpeaking, audioLevel: data.level });
+          })
+        );
+
+        unsubs.push(
+          socketService.onEvent("voice.mute_changed", (data: VoiceMuteChangedDTO) => {
+            if (!mounted || data.roomId !== roomId) return;
+            const updates: Partial<Participant> = { isMuted: data.isMuted };
+            if (typeof data.isDeafened === "boolean") updates.isDeafened = data.isDeafened;
+            if (typeof data.handRaised === "boolean") updates.handRaised = data.handRaised;
+            updateParticipant(data.userId, updates);
+          })
+        );
+
+        const handleScreenShare = (data: ScreenShareDTO, isSharing: boolean) => {
+          if (!mounted || data.roomId !== roomId) return;
+          updateParticipant(data.userId, { isScreenSharing: isSharing });
+          if (!isSharing) {
+            setRemoteScreenStream((prev) => (prev?.userId === data.userId ? null : prev));
+          }
+        };
+
+        unsubs.push(
+          socketService.onEvent("screen_share.started", (data: ScreenShareDTO) =>
+            handleScreenShare(data, true)
+          )
+        );
+        unsubs.push(
+          socketService.onEvent("screen_share.stopped", (data: ScreenShareDTO) =>
+            handleScreenShare(data, false)
+          )
+        );
+
+        await webrtcMeshManager.joinRoom(roomId, user);
+
+        if (!mounted) {
+          cleanupListeners();
+          return;
+        }
+        const stream = webrtcMeshManager.getLocalStream();
+        if (!stream?.getAudioTracks().some((track) => track.readyState === "live")) {
+          throw new Error("No live microphone audio track is available.");
+        }
+        setMediaError(null);
+        setStream(stream);
+        setLocalStream(stream);
+        setConnectionStatus("connected");
+        setIsSocketConnected(socket.connected);
 
         webrtcMeshManager.onAudioPlaybackBlocked = setAudioPlaybackBlocked;
 
@@ -134,121 +261,48 @@ export function useWebRTC(roomId?: string) {
           }
         };
 
-        // Socket: Existing peers in room with full voiceState (received by joiner)
-        const onExistingPeers = ({ peers }: { peers: Array<{ socketId: string; userId: string; user: any; voiceState?: any }> }) => {
-          if (!mounted || !Array.isArray(peers)) return;
-          peers.forEach(({ userId, user: peerUser, voiceState }) => {
-            if (!peerUser || userId === user?.id) return;
-            const existingParticipant: Participant = {
-              id: userId,
-              name: peerUser.name || `User ${userId.slice(0, 4)}`,
-              avatarUrl: peerUser.avatarUrl,
-              location: peerUser.location || "Global",
-              nativeLanguage: peerUser.nativeLanguage || "English",
-              learningLanguage: peerUser.learningLanguage || "Spanish",
-              isVerified: !!peerUser.isVerified,
-              cefrPortfolio: peerUser.cefrPortfolio || {},
-              karma: peerUser.karma || 0,
-              hoursSpoken: peerUser.hoursSpoken || 0,
-              streak: peerUser.streak || 1,
-              isHost: !!peerUser.isHost,
-              isSpeaking: false,
-              isMuted: voiceState ? !!voiceState.isMuted : !!peerUser.isMuted,
-              isDeafened: voiceState ? !!voiceState.isDeafened : !!peerUser.isDeafened,
-              handRaised: voiceState ? !!voiceState.handRaised : !!peerUser.handRaised,
-              isScreenSharing: voiceState ? !!voiceState.isScreenSharing : !!peerUser.isScreenSharing,
-            };
-            addParticipant(existingParticipant);
-          });
-        };
-        socket.on("room:existing-peers", onExistingPeers);
-
-        // Socket: User joined room (received by existing peers)
-        const onUserJoined = ({ userId, user: newPeerUser }: { userId: string; user: any }) => {
-          if (!mounted || !newPeerUser || userId === user?.id) return;
-          console.log(`[useWebRTC] New user joined room: ${userId}`);
-          const newParticipant: Participant = {
-            id: userId,
-            name: newPeerUser.name || `User ${userId.slice(0, 4)}`,
-            avatarUrl: newPeerUser.avatarUrl,
-            location: newPeerUser.location || "Global",
-            nativeLanguage: newPeerUser.nativeLanguage || "English",
-            learningLanguage: newPeerUser.learningLanguage || "Spanish",
-            isVerified: !!newPeerUser.isVerified,
-            cefrPortfolio: newPeerUser.cefrPortfolio || {},
-            karma: newPeerUser.karma || 0,
-            hoursSpoken: newPeerUser.hoursSpoken || 0,
-            streak: newPeerUser.streak || 1,
-            isHost: !!newPeerUser.isHost,
-            isSpeaking: false,
-            isMuted: false,
-            isDeafened: false,
-            handRaised: false,
-          };
-          addParticipant(newParticipant);
-        };
-        socket.on("room:user-joined", onUserJoined);
+        const {
+          isMuted: curMuted,
+          isDeafened: curDeafened,
+          handRaised: curHand,
+        } = useVoiceStore.getState();
 
         // Ensure local user is represented in participants list
-        if (user) {
-          addParticipant({
-            ...user,
-            isHost: useRoomStore.getState().isHost,
-            isSpeaking: false,
-            isMuted,
-            isDeafened,
-            handRaised,
-          });
-        }
+        addParticipant({
+          ...user,
+          isHost: useRoomStore.getState().isHost,
+          isSpeaking: false,
+          isMuted: curMuted,
+          isDeafened: curDeafened,
+          handRaised: curHand,
+        });
 
-        // Socket: Dynamic Speaking Amplitude Broadcast
-        const onSpeakingChanged = ({ userId, isSpeaking: speaking, level }: { userId: string; isSpeaking: boolean; level: number }) => {
-          if (!mounted) return;
-          setSpeaking(userId, speaking);
-          setAudioLevel(userId, level);
-          updateParticipant(userId, { isSpeaking: speaking, audioLevel: level });
+        // Mark room joined ONLY after room.join command.ack resolved and emit initial voice state once
+        lastSyncedVoiceRef.current = {
+          isMuted: curMuted,
+          isDeafened: curDeafened,
+          handRaised: curHand,
         };
-        socket.on("voice:speaking-changed", onSpeakingChanged);
-
-        // Socket: Tactical Voice State Updates (Mute, Deafen, Hand)
-        const onVoiceStateUpdated = ({ userId, isMuted: muted, isDeafened: deafened, handRaised: raised }: { userId: string; isMuted?: boolean; isDeafened?: boolean; handRaised?: boolean }) => {
-          if (!mounted) return;
-          const updates: Partial<Participant> = {};
-          if (typeof muted === "boolean") updates.isMuted = muted;
-          if (typeof deafened === "boolean") updates.isDeafened = deafened;
-          if (typeof raised === "boolean") updates.handRaised = raised;
-          updateParticipant(userId, updates);
-        };
-        socket.on("voice:state-updated", onVoiceStateUpdated);
-
-        // Socket: Screen share state change
-        const onScreenShareChanged = ({ userId: sharerId, isSharing }: { userId: string; isSharing: boolean }) => {
-          if (!mounted) return;
-          updateParticipant(sharerId, { isScreenSharing: isSharing });
-          if (!isSharing) {
-            setRemoteScreenStream((prev) => (prev?.userId === sharerId ? null : prev));
-          }
-        };
-        socket.on("room:screen-share-changed", onScreenShareChanged);
+        hasJoinedRoomRef.current = true;
+        setHasJoinedRoom(true);
+        socketService
+          .sendVoiceState(roomId, {
+            isMuted: curMuted,
+            isDeafened: curDeafened,
+            handRaised: curHand,
+          })
+          .catch(() => {});
 
         // Measure network mesh latency periodically
-        const latencyTimer = setInterval(async () => {
+        latencyTimer = setInterval(async () => {
           if (!mounted) return;
           const latency = await socketService.measureLatency();
           setNetworkLatency(latency);
         }, 5000);
 
-        return () => {
-          clearInterval(latencyTimer);
-          socket.off("connect", onConnect);
-          socket.off("disconnect", onDisconnect);
-          socket.off("room:existing-peers", onExistingPeers);
-          socket.off("room:user-joined", onUserJoined);
-          socket.off("room:screen-share-changed", onScreenShareChanged);
-          socket.off("voice:speaking-changed", onSpeakingChanged);
-          socket.off("voice:state-updated", onVoiceStateUpdated);
-        };
+        return cleanupListeners;
       } catch (err) {
+        cleanupListeners();
         console.error("[useWebRTC] Failed to initialize WebRTC mesh:", err);
         if (mounted) {
           const error = err instanceof Error ? err : new Error("Unable to initialize microphone.");
@@ -265,6 +319,9 @@ export function useWebRTC(roomId?: string) {
     return () => {
       mounted = false;
       mountedRef.current = false;
+      hasJoinedRoomRef.current = false;
+      lastSyncedVoiceRef.current = null;
+      setHasJoinedRoom(false);
       cleanupPromise.then((cleanupFn) => cleanupFn && cleanupFn());
       webrtcMeshManager.destroy();
       setStream(null);
@@ -278,35 +335,71 @@ export function useWebRTC(roomId?: string) {
     };
   }, [roomId, user?.id, applyIceDiagnostic]);
 
-  // 2. React to isMuted changes
+  // 2. React to isMuted changes (gated on hasJoinedRoom)
   useEffect(() => {
     webrtcMeshManager.setMuted(isMuted);
-    if (roomId && user?.id) {
-      socketService.sendVoiceState(roomId, { isMuted });
-      updateParticipant(user.id, { isMuted });
-    }
-  }, [isMuted, roomId, user?.id]);
+    if (!hasJoinedRoom || !roomId || !user?.id) return;
+    updateParticipant(user.id, { isMuted });
+    if (lastSyncedVoiceRef.current?.isMuted === isMuted) return;
+    const { isDeafened: curDeafened, handRaised: curHand } = useVoiceStore.getState();
+    lastSyncedVoiceRef.current = {
+      isMuted,
+      isDeafened: curDeafened,
+      handRaised: curHand,
+    };
+    socketService
+      .sendVoiceState(roomId, {
+        isMuted,
+        isDeafened: curDeafened,
+        handRaised: curHand,
+      })
+      .catch(() => {});
+  }, [isMuted, hasJoinedRoom, roomId, user?.id, updateParticipant]);
 
-  // 3. React to isDeafened changes
+  // 3. React to isDeafened changes (gated on hasJoinedRoom)
   useEffect(() => {
     webrtcMeshManager.setDeafened(isDeafened);
-    if (roomId && user?.id) {
-      socketService.sendVoiceState(roomId, { isDeafened });
-      updateParticipant(user.id, { isDeafened });
-    }
-  }, [isDeafened, roomId, user?.id]);
+    if (!hasJoinedRoom || !roomId || !user?.id) return;
+    updateParticipant(user.id, { isDeafened });
+    if (lastSyncedVoiceRef.current?.isDeafened === isDeafened) return;
+    const { isMuted: curMuted, handRaised: curHand } = useVoiceStore.getState();
+    lastSyncedVoiceRef.current = {
+      isMuted: curMuted,
+      isDeafened,
+      handRaised: curHand,
+    };
+    socketService
+      .sendVoiceState(roomId, {
+        isMuted: curMuted,
+        isDeafened,
+        handRaised: curHand,
+      })
+      .catch(() => {});
+  }, [isDeafened, hasJoinedRoom, roomId, user?.id, updateParticipant]);
 
-  // 4. React to handRaised changes
+  // 4. React to handRaised changes (gated on hasJoinedRoom)
   useEffect(() => {
-    if (roomId && user?.id) {
-      socketService.sendVoiceState(roomId, { handRaised });
-      updateParticipant(user.id, { handRaised });
-    }
-  }, [handRaised, roomId, user?.id]);
+    if (!hasJoinedRoom || !roomId || !user?.id) return;
+    updateParticipant(user.id, { handRaised });
+    if (lastSyncedVoiceRef.current?.handRaised === handRaised) return;
+    const { isMuted: curMuted, isDeafened: curDeafened } = useVoiceStore.getState();
+    lastSyncedVoiceRef.current = {
+      isMuted: curMuted,
+      isDeafened: curDeafened,
+      handRaised,
+    };
+    socketService
+      .sendVoiceState(roomId, {
+        isMuted: curMuted,
+        isDeafened: curDeafened,
+        handRaised,
+      })
+      .catch(() => {});
+  }, [handRaised, hasJoinedRoom, roomId, user?.id, updateParticipant]);
 
   // 5. Real-time microphone audio level analyzer and speaking detector
   useEffect(() => {
-    if (!localStream || isMuted || isDeafened || !user?.id || !roomId) {
+    if (!localStream || !hasJoinedRoom || isMuted || isDeafened || !user?.id || !roomId) {
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (audioContextRef.current && audioContextRef.current.state !== "closed") {
         audioContextRef.current.close().catch(() => { });
@@ -318,7 +411,9 @@ export function useWebRTC(roomId?: string) {
         setSpeaking(user.id, false);
         setAudioLevel(user.id, 0);
         updateParticipant(user.id, { isSpeaking: false, audioLevel: 0 });
-        socketService.sendSpeaking(roomId, false, 0, user.id);
+        if (hasJoinedRoomRef.current) {
+          socketService.sendSpeaking(roomId, false, 0);
+        }
       }
       return;
     }
@@ -357,7 +452,9 @@ export function useWebRTC(roomId?: string) {
         if (speakingNow !== lastSpeakingStateRef.current) {
           lastSpeakingStateRef.current = speakingNow;
           setSpeaking(user.id, speakingNow);
-          socketService.sendSpeaking(roomId, speakingNow, normalizedVolume, user.id);
+          if (hasJoinedRoomRef.current) {
+            socketService.sendSpeaking(roomId, speakingNow, normalizedVolume);
+          }
           updateParticipant(user.id, { isSpeaking: speakingNow, audioLevel: normalizedVolume });
         }
       }, 60);
@@ -371,7 +468,7 @@ export function useWebRTC(roomId?: string) {
         audioContextRef.current.close().catch(() => { });
       }
     };
-  }, [localStream, isMuted, isDeafened, user?.id, roomId, setSpeaking, setAudioLevel, updateParticipant]);
+  }, [localStream, hasJoinedRoom, isMuted, isDeafened, user?.id, roomId, setSpeaking, setAudioLevel, updateParticipant]);
 
   const handleShareScreen = useCallback(
     async (stream: MediaStream | null) => {
