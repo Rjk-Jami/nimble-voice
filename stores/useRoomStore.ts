@@ -38,11 +38,17 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       room.host.id === currentUserId ||
       room.participants.some((p) => p.id === currentUserId && p.isHost);
 
-    // Update existing user participant if present, otherwise prepend
-    let participants = room.participants.map((p) =>
-      p.id === currentUserId ? { ...p, ...(user || {}), isHost } : p
-    );
-    if (user && !participants.some((p) => p.id === user.id)) {
+    // Collapse duplicate participant IDs (reload/hydration can inject a second "YOU")
+    const seenIds = new Set<string>();
+    let participants: Participant[] = [];
+    for (const p of room.participants) {
+      if (seenIds.has(p.id)) continue;
+      seenIds.add(p.id);
+      participants.push(
+        p.id === currentUserId ? { ...p, ...(user || {}), isHost } : p
+      );
+    }
+    if (user && !seenIds.has(user.id)) {
       const userParticipant: Participant = {
         ...user,
         isHost,

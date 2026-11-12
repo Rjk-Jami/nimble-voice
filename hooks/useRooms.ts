@@ -38,6 +38,7 @@ export function useRooms() {
 
   const user = useAuthStore((s) => s.user);
   const joinRoomInStore = useRoomStore((s) => s.joinRoom);
+  const setCurrentRoom = useRoomStore((s) => s.setCurrentRoom);
 
   // SWR synchronization for active rooms
   const { data: serverResponse, mutate } = useSWR<any>(API_PATHS.ROOMS.LIST, {
@@ -281,8 +282,9 @@ export function useRooms() {
       console.warn("Backend room persistence notice:", err);
     }
 
-    // Update store and lobby with the authoritative room
+    // Bind LiveVoiceRoom / WebRTC / chat to the persisted DB room ID (never leave room-${Date.now()})
     addRoom(createdRoom);
+    setCurrentRoom(createdRoom);
     joinRoomInStore(createdRoom, hostUser);
     mutate(
       (curr: any) => {
