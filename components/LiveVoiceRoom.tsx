@@ -174,6 +174,7 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
           toast.error(
             data.reason || "You were removed from this room by the host."
           );
+          useRoomStore.getState().leaveRoom();
           void leaveRoom();
         }
       }),
@@ -185,6 +186,7 @@ export function LiveVoiceRoom({ room }: LiveVoiceRoomProps) {
       socketService.onEvent("room.deleted", (data) => {
         if (data.roomId === activeRoomId) {
           toast.info(data.reason || "Room was closed by the host.");
+          useRoomStore.getState().leaveRoom();
           void leaveRoom();
         }
       }),

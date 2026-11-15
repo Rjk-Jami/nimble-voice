@@ -172,16 +172,16 @@ export function useRooms() {
     };
   }, [setLiveStats, addRoom, updateRoom, removeRoom]);
 
-  // Guaranteed flat array of VoiceRoom items for filtering
+  // Guaranteed flat array of VoiceRoom items for filtering (prioritizing real-time store updates)
   const roomsList = useMemo<VoiceRoom[]>(() => {
-    if (Array.isArray(serverRooms) && serverRooms.length > 0) {
-      return serverRooms;
-    }
     if (Array.isArray(storeRooms) && storeRooms.length > 0) {
       return storeRooms;
     }
+    if (Array.isArray(serverRooms) && serverRooms.length > 0) {
+      return serverRooms;
+    }
     return [];
-  }, [serverRooms, storeRooms]);
+  }, [storeRooms, serverRooms]);
 
   // Filter computation
   const filteredRooms = useMemo(() => {
@@ -320,8 +320,7 @@ export function useRooms() {
           const safeToken = String(guestRes.token);
           token = safeToken;
           sessionStorage.setItem("nimble_guest_token", safeToken);
-          localStorage.setItem("token", safeToken);
-          localStorage.setItem("nimble_auth_token", safeToken);
+          socketService.connect();
           if (guestRes?.user) {
             useAuthStore.setState({
               user: normalizeUser(guestRes.user),

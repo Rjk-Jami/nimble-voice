@@ -66,77 +66,87 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const stored = localStorage.getItem("nimble_voice_user");
       if (stored) {
-        const parsed = JSON.parse(stored);
-        if (!parsed.isGuest) {
-          set({ user: parsed, isAuthenticated: true, isGuest: false });
-          setPresenceAuthenticated(true);
-          return;
-        }
+        try {
+          const parsed = JSON.parse(stored);
+          if (!parsed.isGuest) {
+            set({ user: parsed, isAuthenticated: true, isGuest: false });
+            setPresenceAuthenticated(true);
+            return;
+          }
+        } catch {}
       }
 
       // Check tab-scoped session for guest
+      let guestUser: User | null = null;
       const sessionStored = sessionStorage.getItem("nimble_voice_guest");
       if (sessionStored) {
-        const parsedGuest = JSON.parse(sessionStored);
-        set({ user: parsedGuest, isAuthenticated: false, isGuest: true });
-        const hasToken = Boolean(
-          sessionStorage.getItem("nimble_guest_token") ||
-          localStorage.getItem("token") ||
-          localStorage.getItem("nimble_auth_token")
-        );
-        setPresenceAuthenticated(hasToken);
+        try {
+          guestUser = JSON.parse(sessionStored);
+        } catch {}
+      }
+
+      if (!guestUser) {
+        // Generate clean unique guest learner session for this tab/window (userYYYYMMDDNNN)
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, "0");
+        const dd = String(now.getDate()).padStart(2, "0");
+        const randomSeq = Math.floor(100 + Math.random() * 900);
+        const guestId = `user${yyyy}${mm}${dd}${randomSeq}`;
+        guestUser = {
+          ...DEFAULT_USER,
+          id: guestId,
+          name: `Guest #${randomSeq}`,
+          avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${guestId}`,
+        };
+        sessionStorage.setItem("nimble_voice_guest", JSON.stringify(guestUser));
+      }
+
+      set({ user: guestUser, isAuthenticated: false, isGuest: true });
+
+      // Check for token in sessionStorage, migrating from legacy localStorage if needed
+      let token = sessionStorage.getItem("nimble_guest_token");
+      if (!token) {
+        const legacyToken = localStorage.getItem("token") || localStorage.getItem("nimble_auth_token");
+        if (legacyToken) {
+          token = legacyToken;
+          sessionStorage.setItem("nimble_guest_token", legacyToken);
+        }
+      }
+
+      if (token) {
+        setPresenceAuthenticated(true);
         return;
       }
 
-      // Generate clean unique guest learner session for this tab/window (userYYYYMMDDNNN)
-      const now = new Date();
-      const yyyy = now.getFullYear();
-      const mm = String(now.getMonth() + 1).padStart(2, "0");
-      const dd = String(now.getDate()).padStart(2, "0");
-      const randomSeq = Math.floor(100 + Math.random() * 900);
-      const guestId = `user${yyyy}${mm}${dd}${randomSeq}`;
-      const guestUser: User = {
-        ...DEFAULT_USER,
-        id: guestId,
-        name: `Guest #${randomSeq}`,
-        avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${guestId}`,
-      };
-      sessionStorage.setItem("nimble_voice_guest", JSON.stringify(guestUser));
-      set({ user: guestUser, isAuthenticated: false, isGuest: true });
-
-      // Automatically register guest token with Go backend if no token exists for this session
-      const existingToken =
-        sessionStorage.getItem("nimble_guest_token") ||
-        localStorage.getItem("token") ||
-        localStorage.getItem("nimble_auth_token");
-      if (!existingToken) {
-        import("@/lib/axios").then(({ apiClient }) => {
-          import("@/constants/apiPaths").then(({ API_PATHS }) => {
-            apiClient
-              .post(API_PATHS.AUTH.GUEST_LOGIN, { name: guestUser.name })
-              .then((res: any) => {
-                if (res?.token) {
-                  sessionStorage.setItem("nimble_guest_token", res.token);
-                  localStorage.setItem("token", res.token);
-                  localStorage.setItem("nimble_auth_token", res.token);
-                  setPresenceAuthenticated(true);
-                }
-                if (res?.user) {
-                  import("@/lib/normalize").then(({ normalizeUser }) => {
-                    set({
-                      user: normalizeUser(res.user),
-                      isAuthenticated: false,
-                      isGuest: true,
-                    });
+      // No token found anywhere for this session: register with Go backend
+      import("@/lib/axios").then(({ apiClient }) => {
+        import("@/constants/apiPaths").then(({ API_PATHS }) => {
+          apiClient
+            .post(API_PATHS.AUTH.GUEST_LOGIN, { name: guestUser!.name })
+            .then((res: any) => {
+              if (res?.token) {
+                sessionStorage.setItem("nimble_guest_token", res.token);
+                setPresenceAuthenticated(true);
+                import("@/lib/socket").then(({ socketService }) => {
+                  socketService.connect();
+                });
+              }
+              if (res?.user) {
+                import("@/lib/normalize").then(({ normalizeUser }) => {
+                  set({
+                    user: normalizeUser(res.user),
+                    isAuthenticated: false,
+                    isGuest: true,
                   });
-                }
-              })
-              .catch(() => {});
-          });
+                });
+              }
+            })
+            .catch((err) => {
+              console.warn("Guest login initialization failed:", err);
+            });
         });
-      } else {
-        setPresenceAuthenticated(true);
-      }
+      });
     } catch {}
   },
 
@@ -190,7 +200,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     };
     if (typeof window !== "undefined") {
       try {
-        localStorage.setItem("nimble_voice_user", JSON.stringify(guestUser));
+        sessionStorage.setItem("nimble_voice_guest", JSON.stringify(guestUser));
       } catch {}
     }
     set({
@@ -198,7 +208,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       isAuthenticated: true,
       isGuest: true,
     });
-    setPresenceAuthenticated(Boolean(localStorage.getItem("token") || localStorage.getItem("nimble_auth_token")));
+    setPresenceAuthenticated(Boolean(sessionStorage.getItem("nimble_guest_token") || localStorage.getItem("token") || localStorage.getItem("nimble_auth_token")));
   },
 
   updateProfile: (updates) =>
