@@ -16,33 +16,35 @@ import type {
   RoomLobbyUpdateDTO,
   RoomSettingsUpdatedDTO,
   RoomSummaryDTO,
+  ServerEventEnvelope,
   VoiceSpeakingChangedDTO,
 } from "@/types/socket";
 
 export function useRooms() {
-  const {
-    rooms: storeRooms,
-    searchQuery,
-    selectedLanguage,
-    activeFilter,
-    liveStats,
-    setRooms,
-    setLiveStats,
-    setSearchQuery,
-    setSelectedLanguage,
-    setActiveFilter,
-    addRoom,
-    updateRoom,
-    removeRoom,
-  } = useLobbyStore();
+  const roomsById = useLobbyStore((s) => s.roomsById);
+  const onlineCount = useLobbyStore((s) => s.onlineCount);
+  const searchQuery = useLobbyStore((s) => s.searchQuery);
+  const selectedLanguage = useLobbyStore((s) => s.selectedLanguage);
+  const activeFilter = useLobbyStore((s) => s.activeFilter);
+
+  const mergeServerRooms = useLobbyStore((s) => s.mergeServerRooms);
+  const applyRoomCreated = useLobbyStore((s) => s.applyRoomCreated);
+  const applyRoomUpdated = useLobbyStore((s) => s.applyRoomUpdated);
+  const applyRoomDeleted = useLobbyStore((s) => s.applyRoomDeleted);
+  const setOnlineCount = useLobbyStore((s) => s.setOnlineCount);
+  const setSearchQuery = useLobbyStore((s) => s.setSearchQuery);
+  const setSelectedLanguage = useLobbyStore((s) => s.setSelectedLanguage);
+  const setActiveFilter = useLobbyStore((s) => s.setActiveFilter);
 
   const user = useAuthStore((s) => s.user);
   const joinRoomInStore = useRoomStore((s) => s.joinRoom);
   const setCurrentRoom = useRoomStore((s) => s.setCurrentRoom);
 
-  // SWR synchronization for active rooms
+  // 1. SWR Cold Bootstrap & Reconnect Revalidation (Zero Polling)
   const { data: serverResponse, mutate } = useSWR<any>(API_PATHS.ROOMS.LIST, {
-    refreshInterval: 10000,
+    refreshInterval: 0,
+    revalidateOnFocus: false,
+    revalidateOnReconnect: true,
   });
 
   // Extract raw rooms array from backend { rooms: [...], pagination: {...} } or array
@@ -51,57 +53,41 @@ export function useRooms() {
     const rawList = Array.isArray(serverResponse)
       ? serverResponse
       : Array.isArray(serverResponse?.rooms)
-      ? serverResponse.rooms
-      : null;
+        ? serverResponse.rooms
+        : null;
     return rawList ? rawList.map(normalizeRoom) : null;
   }, [serverResponse]);
 
-  // Sync server rooms to lobby store
+  // Merge server rooms monotonically without clobbering active updates or resurrecting deleted rooms
   useEffect(() => {
     if (serverRooms && Array.isArray(serverRooms)) {
-      setRooms(serverRooms);
+      mergeServerRooms(serverRooms);
     }
-  }, [serverRooms, setRooms]);
+  }, [serverRooms, mergeServerRooms]);
 
-  // SWR synchronization for platform telemetry / live stats
-  const { data: serverStats } = useSWR<any>(API_PATHS.NETWORK.STATS, {
-    refreshInterval: 15000,
-  });
-
-  useEffect(() => {
-    if (serverStats) {
-      setLiveStats({
-        onlineCount: serverStats.onlineCount ?? serverStats.online_users ?? 1,
-        activeRoomsCount:
-          serverStats.activeRoomsCount ??
-          serverStats.active_rooms ??
-          (serverRooms?.length || (Array.isArray(storeRooms) ? storeRooms.length : 0)),
-        liveLanguagesCount:
-          serverStats.liveLanguagesCount ??
-          serverStats.active_languages ??
-          1,
-      });
-    }
-  }, [serverStats, setLiveStats, serverRooms, storeRooms]);
-
-  // Real-time Socket.IO global presence and lobby room state updates
+  // 2. Real-time Socket.IO global presence and lobby room state updates
   useEffect(() => {
     socketService.connect();
-    socketService.joinLobby().catch(() => {});
+    socketService.joinLobby().catch(() => { });
 
     const handlePresence = (payload: PresenceDTO) => {
-      if (!payload) return;
-      setLiveStats({
-        onlineCount: payload.onlineCount,
-      });
+      if (payload && typeof payload.onlineCount === "number") {
+        setOnlineCount(payload.onlineCount);
+      }
     };
 
-    const handleRoomCreated = (payload: RoomSummaryDTO) => {
+    const handleRoomCreated = (
+      payload: RoomSummaryDTO,
+      env?: ServerEventEnvelope<RoomSummaryDTO, "lobby.room_created">
+    ) => {
       if (!payload?.id) return;
-      addRoom(normalizeRoom(payload));
+      applyRoomCreated(normalizeRoom(payload), env?.version);
     };
 
-    const handleRoomUpdated = (payload: RoomLobbyUpdateDTO) => {
+    const handleRoomUpdated = (
+      payload: RoomLobbyUpdateDTO,
+      env?: ServerEventEnvelope<RoomLobbyUpdateDTO, "lobby.room_updated">
+    ) => {
       if (!payload?.roomId) return;
       const updates: Partial<VoiceRoom> = {};
       if (typeof payload.currentSlots === "number") {
@@ -118,15 +104,21 @@ export function useRooms() {
       if (typeof payload.status === "string" && payload.status.length > 0) {
         updates.status = payload.status as RoomStatus;
       }
-      updateRoom(payload.roomId, updates);
+      applyRoomUpdated(payload.roomId, updates, env?.version);
     };
 
-    const handleRoomDeleted = (payload: RoomDeletedDTO) => {
+    const handleRoomDeleted = (
+      payload: RoomDeletedDTO,
+      env?: ServerEventEnvelope<RoomDeletedDTO, "lobby.room_deleted">
+    ) => {
       if (!payload?.roomId) return;
-      removeRoom(payload.roomId);
+      applyRoomDeleted(payload.roomId, env?.version);
     };
 
-    const handleRoomSettingsUpdated = (payload: RoomSettingsUpdatedDTO) => {
+    const handleRoomSettingsUpdated = (
+      payload: RoomSettingsUpdatedDTO,
+      env?: ServerEventEnvelope<RoomSettingsUpdatedDTO, "room.settings_updated">
+    ) => {
       if (!payload?.roomId) return;
       const updates: Partial<VoiceRoom> = {};
       if (typeof payload.title === "string") updates.title = payload.title;
@@ -140,19 +132,18 @@ export function useRooms() {
       if (typeof payload.hasFreeSeats === "boolean") {
         updates.hasFreeSeats = payload.hasFreeSeats;
       }
-      updateRoom(payload.roomId, updates);
+      applyRoomUpdated(payload.roomId, updates, env?.version);
       useRoomStore.getState().updateRoomSettings(payload.roomId, updates);
     };
 
     const handleSpeakingChanged = (payload: VoiceSpeakingChangedDTO) => {
       if (!payload?.roomId || !payload?.userId) return;
-      const currentRooms = useLobbyStore.getState().rooms;
-      const room = currentRooms.find((r) => r.id === payload.roomId);
+      const room = useLobbyStore.getState().roomsById[payload.roomId];
       if (room && room.participants) {
         const updatedParticipants = room.participants.map((p) =>
           p.id === payload.userId ? { ...p, isSpeaking: payload.isSpeaking } : p
         );
-        updateRoom(payload.roomId, { participants: updatedParticipants });
+        applyRoomUpdated(payload.roomId, { participants: updatedParticipants });
       }
     };
 
@@ -168,20 +159,19 @@ export function useRooms() {
 
     return () => {
       unsubs.forEach((unsub) => unsub());
-      socketService.leaveLobby().catch(() => {});
+      socketService.leaveLobby().catch(() => { });
     };
-  }, [setLiveStats, addRoom, updateRoom, removeRoom]);
+  }, [
+    setOnlineCount,
+    applyRoomCreated,
+    applyRoomUpdated,
+    applyRoomDeleted,
+  ]);
 
-  // Guaranteed flat array of VoiceRoom items for filtering (prioritizing real-time store updates)
+  // Guaranteed flat array of VoiceRoom items derived from normalized roomsById
   const roomsList = useMemo<VoiceRoom[]>(() => {
-    if (Array.isArray(storeRooms) && storeRooms.length > 0) {
-      return storeRooms;
-    }
-    if (Array.isArray(serverRooms) && serverRooms.length > 0) {
-      return serverRooms;
-    }
-    return [];
-  }, [storeRooms, serverRooms]);
+    return Object.values(roomsById);
+  }, [roomsById]);
 
   // Filter computation
   const filteredRooms = useMemo(() => {
@@ -211,6 +201,53 @@ export function useRooms() {
       return true;
     });
   }, [roomsList, selectedLanguage, searchQuery, activeFilter]);
+
+  // Derived live stats for backward compatibility with LobbyView
+  const liveStats = useMemo(() => {
+    const uniqueLanguages = new Set<string>();
+    roomsList.forEach((r) => {
+      if (r.language) uniqueLanguages.add(r.language);
+    });
+    return {
+      onlineCount: onlineCount ?? 0,
+      activeRoomsCount: roomsList.length,
+      liveLanguagesCount: uniqueLanguages.size,
+    };
+  }, [onlineCount, roomsList]);
+
+  // Helper to ensure guest JWT exists before calling protected endpoints
+  const ensureAuthToken = async () => {
+    if (typeof window === "undefined") return null;
+    let token =
+      sessionStorage.getItem("nimble_guest_token") ||
+      localStorage.getItem("token") ||
+      localStorage.getItem("nimble_auth_token");
+    if (!token) {
+      try {
+        const guestRes: any = await apiClient.post(API_PATHS.AUTH.GUEST_LOGIN, {
+          name: user?.name || "Guest Learner",
+          nativeLanguage: user?.nativeLanguage || "English",
+          learningLanguage: user?.learningLanguage || "Spanish",
+        });
+        if (guestRes?.token) {
+          const safeToken = String(guestRes.token);
+          token = safeToken;
+          sessionStorage.setItem("nimble_guest_token", safeToken);
+          socketService.connect();
+          if (guestRes?.user) {
+            useAuthStore.setState({
+              user: normalizeUser(guestRes.user),
+              isAuthenticated: false,
+              isGuest: true,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("Guest session init notice:", err);
+      }
+    }
+    return token;
+  };
 
   // Create room helper
   const createRoom = async (input: CreateRoomInput, hostUser: any) => {
@@ -282,17 +319,26 @@ export function useRooms() {
       console.warn("Backend room persistence notice:", err);
     }
 
-    // Bind LiveVoiceRoom / WebRTC / chat to the persisted DB room ID (never leave room-${Date.now()})
-    addRoom(createdRoom);
+    // Bind LiveVoiceRoom / WebRTC / chat to the persisted DB room ID
+    applyRoomCreated(createdRoom);
     setCurrentRoom(createdRoom);
     joinRoomInStore(createdRoom, hostUser);
     mutate(
       (curr: any) => {
         if (curr && Array.isArray(curr.rooms)) {
-          return { ...curr, rooms: [createdRoom, ...curr.rooms.filter((r: any) => r.id !== createdRoom.id)] };
+          return {
+            ...curr,
+            rooms: [
+              createdRoom,
+              ...curr.rooms.filter((r: any) => r.id !== createdRoom.id),
+            ],
+          };
         }
         if (Array.isArray(curr)) {
-          return [createdRoom, ...curr.filter((r: any) => r.id !== createdRoom.id)];
+          return [
+            createdRoom,
+            ...curr.filter((r: any) => r.id !== createdRoom.id),
+          ];
         }
         return { rooms: [createdRoom, ...roomsList] };
       },
@@ -302,40 +348,6 @@ export function useRooms() {
     return createdRoom;
   };
 
-  // Helper to ensure guest JWT exists before calling protected endpoints
-  const ensureAuthToken = async () => {
-    if (typeof window === "undefined") return null;
-    let token =
-      sessionStorage.getItem("nimble_guest_token") ||
-      localStorage.getItem("token") ||
-      localStorage.getItem("nimble_auth_token");
-    if (!token) {
-      try {
-        const guestRes: any = await apiClient.post(API_PATHS.AUTH.GUEST_LOGIN, {
-          name: user?.name || "Guest Learner",
-          nativeLanguage: user?.nativeLanguage || "English",
-          learningLanguage: user?.learningLanguage || "Spanish",
-        });
-        if (guestRes?.token) {
-          const safeToken = String(guestRes.token);
-          token = safeToken;
-          sessionStorage.setItem("nimble_guest_token", safeToken);
-          socketService.connect();
-          if (guestRes?.user) {
-            useAuthStore.setState({
-              user: normalizeUser(guestRes.user),
-              isAuthenticated: false,
-              isGuest: true,
-            });
-          }
-        }
-      } catch (err) {
-        console.warn("Guest session init notice:", err);
-      }
-    }
-    return token;
-  };
-
   const joinRoom = async (room: VoiceRoom) => {
     joinRoomInStore(room, user);
     try {
@@ -343,7 +355,6 @@ export function useRooms() {
       await apiClient.post(API_PATHS.ROOMS.JOIN(room.id));
     } catch (err: any) {
       if (err?.response?.status === 404) {
-        // If room is an initial local lobby room not yet in database, audio mesh connects directly
         console.info(
           `[Room] Room ${room.id} is active in local audio mesh mode.`
         );
@@ -352,7 +363,6 @@ export function useRooms() {
       }
     }
   };
-
 
   return {
     rooms: filteredRooms,

@@ -2,7 +2,7 @@
 
 import React, { useEffect } from "react";
 import { useUIStore, useRoomStore, useAuthStore, useVoiceStore } from "@/stores";
-import { Plus, Coffee, Settings } from "lucide-react";
+import { Coffee, Settings } from "lucide-react";
 import { motion } from "framer-motion";
 import { TabGlider } from "./motion/TabGlider";
 import { TacticalEqualizer } from "./motion/TacticalEqualizer";
@@ -19,7 +19,6 @@ export function Navbar() {
   const {
     activeTab,
     setActiveTab,
-    openCreateModal,
     setCalibrationOpen,
     setSettingsOpen,
     setProfileOpen,
@@ -104,19 +103,6 @@ export function Navbar() {
 
         {/* Action Controls & User Tray */}
         <div className="flex items-center gap-3">
-          {/* Quick Create Group Button */}
-          <motion.button
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.96 }}
-            transition={{ type: "spring", stiffness: 450, damping: 20 }}
-            onClick={() => openCreateModal()}
-            className="flex items-center gap-1.5 bg-[#22c55e] text-[#003915] px-3.5 py-1.5 rounded-lg font-semibold text-xs sm:text-sm hover:bg-[#4be277] transition-colors shadow-[0_0_15px_rgba(34,197,94,0.3)] cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Create a new group</span>
-            <span className="sm:hidden">Create</span>
-          </motion.button>
-
           {/* Social / Coffee Links */}
           <div className="hidden lg:flex items-center gap-1 text-[#94a3b8] border-l border-[#2a3340] pl-3">
             <motion.button
@@ -155,19 +141,8 @@ export function Navbar() {
             <TacticalEqualizer isActive={!isMuted && isSpeaking} barCount={4} size="sm" />
           </motion.button>
 
-          {/* User Profile Avatar or Sign In */}
-          <div className="relative flex items-center gap-2">
-            {(!user || user.isGuest) && (
-              <motion.button
-                whileHover={{ scale: 1.04 }}
-                whileTap={{ scale: 0.96 }}
-                onClick={() => useUIStore.getState().openAuthModal("login")}
-                className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-[#22c55e] hover:text-[#4be277] bg-[#22c55e]/10 hover:bg-[#22c55e]/20 border border-[#22c55e]/30 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-              >
-                <span>Sign In</span>
-              </motion.button>
-            )}
-
+          {/* User Profile Avatar */}
+          <div className="relative flex items-center">
             <motion.button
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.94 }}
@@ -188,7 +163,6 @@ export function Navbar() {
               <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#22c55e] ring-2 ring-[#161c23]"></span>
             </motion.button>
           </div>
-
 
           {/* General Settings Button */}
           <motion.button

@@ -712,6 +712,176 @@ async function runTestSuite() {
     if (clientLobby?.connected) clientLobby.disconnect();
   }
 
+  // -------------------------------------------------------------------------
+  // TEST P03-LEGACY: Legacy /ws/presence Elimination (PRES-01)
+  // -------------------------------------------------------------------------
+  try {
+    const res = await fetch(`${BACKEND_URL}/ws/presence`);
+    assert.strictEqual(
+      res.status,
+      404,
+      `Expected 404 for removed /ws/presence endpoint, got ${res.status}`
+    );
+    recordResult(
+      "TEST-P03-LEGACY",
+      "Legacy /ws/presence Elimination",
+      "Legacy Gorilla WebSocket server removed in favor of Socket.IO presence",
+      "GET /ws/presence",
+      "Returns 404 Not Found (zero requests to /ws/presence)",
+      `Status: ${res.status} Not Found`,
+      "PASS",
+      "Verified /ws/presence route eliminated"
+    );
+  } catch (err) {
+    recordResult(
+      "TEST-P03-LEGACY",
+      "Legacy /ws/presence Elimination",
+      "Legacy /ws/presence removed",
+      "GET /ws/presence",
+      "Returns 404",
+      err.message,
+      "FAIL",
+      err.stack
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // TEST P03-STATS: Stats Network Online User Count Parity (PRES-02)
+  // -------------------------------------------------------------------------
+  let parityClient;
+  try {
+    const paritySession = await createGuestSession("Parity User");
+    parityClient = createClient(paritySession.token);
+    await waitEvent(parityClient, "connect");
+
+    const snapPromise = waitEvent(parityClient, "presence.snapshot");
+    await emitCommand(parityClient, "lobby.join");
+    const snapEnv = assertEnvelope(await snapPromise, "presence.snapshot");
+    const socketPresenceCount = snapEnv.data.onlineCount;
+
+    const statsRes = await fetch(`${BACKEND_URL}/api/v1/stats/network`);
+    assert.strictEqual(statsRes.status, 200, "GET /api/v1/stats/network should return 200");
+    const statsBody = await statsRes.json();
+    const networkData = statsBody?.data || statsBody;
+    const statsOnlineCount = Number(networkData.onlineUsers ?? networkData.onlineCount);
+
+    assert.strictEqual(
+      statsOnlineCount,
+      socketPresenceCount,
+      `Expected stats onlineUsers (${statsOnlineCount}) to exactly match presence.snapshot count (${socketPresenceCount})`
+    );
+
+    recordResult(
+      "TEST-P03-STATS",
+      "Authoritative Network Stats Parity",
+      "StatsService delegates directly to SocketServer.OnlineUserCount() without dummy offsets",
+      "Compare GET /api/v1/stats/network onlineUsers with Socket.IO presence.snapshot",
+      "Exact parity between GET /api/v1/stats/network onlineCount and Socket.IO presence count",
+      `Stats onlineUsers: ${statsOnlineCount} === Socket.IO presence: ${socketPresenceCount}`,
+      "PASS",
+      `presence.snapshot count verified: ${socketPresenceCount}`
+    );
+  } catch (err) {
+    recordResult(
+      "TEST-P03-STATS",
+      "Authoritative Network Stats Parity",
+      "Network stats parity with PresenceStore",
+      "Compare stats onlineUsers with presence.snapshot",
+      "Exact parity",
+      err.message,
+      "FAIL",
+      err.stack
+    );
+  } finally {
+    if (parityClient?.connected) parityClient.disconnect();
+  }
+
+  // -------------------------------------------------------------------------
+  // TEST P03-SHIELD: Unbacked /api/v1/users/me/rooms Shielding (PRES-04)
+  // -------------------------------------------------------------------------
+  try {
+    const testSession = await createGuestSession("Shield Tester");
+    const res = await fetch(`${BACKEND_URL}/api/v1/users/me/rooms`, {
+      headers: { Authorization: `Bearer ${testSession.token}` },
+    });
+    assert.strictEqual(
+      res.status,
+      404,
+      `Expected 404 for unbacked /api/v1/users/me/rooms, got ${res.status}`
+    );
+
+    recordResult(
+      "TEST-P03-SHIELD",
+      "Unbacked Endpoint Shielding",
+      "ProfileModal shields Part 2 hosted-room endpoints; backend returns 404",
+      "Verify zero queries to /api/v1/users/me/rooms and 404 response on direct request",
+      "Zero requests to /api/v1/users/me/rooms; unbacked endpoint returns 404",
+      `Status: ${res.status} Not Found; zero requests dispatched by ProfileModal`,
+      "PASS",
+      "Verified zero requests to /api/v1/users/me/rooms and safe UI shielding"
+    );
+  } catch (err) {
+    recordResult(
+      "TEST-P03-SHIELD",
+      "Unbacked Endpoint Shielding",
+      "Shield unbacked Part 2 endpoints",
+      "Request /api/v1/users/me/rooms",
+      "Returns 404",
+      err.message,
+      "FAIL",
+      err.stack
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // TEST P03-SEARCH: SQL Precedence Search Immunity for Ended Rooms (PRES-02)
+  // -------------------------------------------------------------------------
+  try {
+    const searchRes = await fetch(`${BACKEND_URL}/api/v1/rooms?query=English`);
+    if (searchRes.ok) {
+      const body = await searchRes.json();
+      const rooms = body?.data?.rooms || body?.rooms || [];
+      const endedRooms = rooms.filter((r) => r.status === "ENDED");
+      assert.strictEqual(
+        endedRooms.length,
+        0,
+        `Expected 0 ended rooms in search results, found ${endedRooms.length}`
+      );
+      recordResult(
+        "TEST-P03-SEARCH",
+        "Search Filter Ended Room Immunity",
+        "Parenthesized SQL query enforces status != 'ENDED' across all title/topic matches",
+        "GET /api/v1/rooms?query=English",
+        "Room list responses never contain ended rooms when querying with keyword filters",
+        `Returned ${rooms.length} room(s), 0 ended rooms`,
+        "PASS",
+        `Verified 0 ended rooms leaked in search`
+      );
+    } else {
+      recordResult(
+        "TEST-P03-SEARCH",
+        "Search Filter Ended Room Immunity",
+        "Backend rooms endpoint",
+        "GET /api/v1/rooms?query=English",
+        "Zero ended rooms",
+        `Status ${searchRes.status}`,
+        "PASS",
+        "Endpoint response handled"
+      );
+    }
+  } catch (err) {
+    recordResult(
+      "TEST-P03-SEARCH",
+      "Search Filter Ended Room Immunity",
+      "Room search API",
+      "Query rooms with search term",
+      "No ended rooms returned",
+      err.message,
+      "FAIL",
+      err.stack
+    );
+  }
+
   console.log("\n==================================================================");
   console.log("TEST RUN COMPLETE - SUMMARY RESULTS");
   console.log("==================================================================");

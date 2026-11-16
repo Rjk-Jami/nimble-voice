@@ -1,13 +1,14 @@
 "use client";
 
-const AUTH_STATE_EVENT = "nimble:presence-auth-state";
+/**
+ * @deprecated Legacy WebSocket presence has been eliminated in Phase 3.
+ * User presence is now managed authoritatively via JWT-authenticated Socket.IO gateway.
+ */
+export const AUTH_STATE_EVENT = "nimble:presence-auth-state";
 
-/** Notify the shared presence socket after backend auth cookies are issued or cleared. */
-export function setPresenceAuthenticated(authenticated: boolean): void {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(
-    new CustomEvent(AUTH_STATE_EVENT, { detail: { authenticated } })
-  );
+/**
+ * @deprecated No-op function retained for backward-compatibility with legacy auth hooks.
+ */
+export function setPresenceAuthenticated(_authenticated: boolean): void {
+  // No-op: Socket.IO manages connection and presence directly via JWT auth
 }
-
-export { AUTH_STATE_EVENT };

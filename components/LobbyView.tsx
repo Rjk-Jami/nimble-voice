@@ -4,11 +4,10 @@ import React from "react";
 import { useRooms } from "@/hooks";
 import { useUIStore, useVoiceStore } from "@/stores";
 import { Language, LANGUAGE_FLAGS } from "@/enums";
-import { Search, PlusCircle, X, Users, Disc3, ShieldCheck } from "lucide-react";
+import { Search, X, Users, ShieldCheck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MotionButton } from "./motion/MotionButton";
 import { TabGlider } from "./motion/TabGlider";
-import { StaggerContainer, StaggerItem } from "./motion/StaggerList";
 import { MotionCard } from "./motion/MotionCard";
 import { SpeakingRipple } from "./motion/SpeakingRipple";
 import { TacticalEqualizer } from "./motion/TacticalEqualizer";
@@ -20,7 +19,6 @@ export function LobbyView() {
     searchQuery,
     selectedLanguage,
     activeFilter,
-    liveStats,
     setSearchQuery,
     setSelectedLanguage,
     setActiveFilter,
@@ -43,54 +41,16 @@ export function LobbyView() {
       >
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2 px-3 py-1 bg-[#242a32] rounded-full border border-[#2a3340] relative">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#22c55e] animate-ping"></span>
-            <span className="w-2 h-2 rounded-full bg-[#22c55e] -ml-4"></span>
+            <span className="w-2.5 h-2.5 rounded-full bg-[#22c55e] animate-ping" />
+            <span className="w-2 h-2 rounded-full bg-[#22c55e] -ml-4" />
             <span className="text-xs font-bold text-[#dde3ed] tracking-wider uppercase">
               Global Audio Network
             </span>
           </div>
 
-          <div className="flex items-center gap-3 text-[#94a3b8] text-xs sm:text-sm flex-wrap">
-            <span className="flex items-center gap-1.5">
-              <Users className="w-4 h-4 text-[#22c55e]" aria-hidden="true" />
-              <OnlineLearners />
-            </span>
-            <span className="opacity-40">•</span>
-            <span className="flex items-center gap-1.5 font-semibold text-[#dde3ed]">
-              <Disc3 className="w-4 h-4 text-[#22c55e]" />
-              <AnimatePresence mode="wait">
-                <motion.span
-                  key={liveStats.activeRoomsCount}
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 4 }}
-                  transition={{ duration: 0.2 }}
-                  className="inline-block"
-                >
-                  {liveStats.activeRoomsCount}
-                </motion.span>
-              </AnimatePresence>{" "}
-              <span className="font-normal text-[#94a3b8]">active voice rooms</span>
-            </span>
-            <span className="opacity-40">•</span>
-            <span className="flex items-center gap-1.5 font-semibold text-[#dde3ed]">
-              <span className="material-symbols-outlined text-[#22c55e] text-base leading-none">
-                translate
-              </span>
-              <AnimatePresence mode="wait">
-                <motion.span
-                  key={liveStats.liveLanguagesCount}
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 4 }}
-                  transition={{ duration: 0.2 }}
-                  className="inline-block"
-                >
-                  {liveStats.liveLanguagesCount}
-                </motion.span>
-              </AnimatePresence>{" "}
-              <span className="font-normal text-[#94a3b8]">live languages</span>
-            </span>
+          <div className="flex items-center gap-3 text-[#94a3b8] text-xs sm:text-sm">
+            <Users className="w-4 h-4 text-[#22c55e]" aria-hidden="true" />
+            <OnlineLearners />
           </div>
         </div>
 
@@ -98,11 +58,10 @@ export function LobbyView() {
         <div className="flex items-center gap-2.5 self-end lg:self-auto">
           <MotionButton
             variant="primary"
-            size="sm"
+            size="md"
             onClick={() => openCreateModal()}
           >
-            <PlusCircle className="w-4 h-4" />
-            <span>Create New Room</span>
+            Create New Room
           </MotionButton>
         </div>
       </motion.div>
@@ -117,20 +76,19 @@ export function LobbyView() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search room by topic, language or host..."
+              placeholder="Search rooms by name or tag..."
               className="w-full bg-[#1a2027] text-[#dde3ed] placeholder:text-[#94a3b8] text-sm pl-10 pr-20 py-2.5 rounded-xl border border-[#2a3340] focus:outline-none focus:border-[#22c55e] focus:ring-1 focus:ring-[#22c55e] transition-all"
             />
-            {searchQuery && (
-              <motion.button
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                onClick={() => setSearchQuery("")}
-                className="absolute right-10 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#dde3ed] p-1 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </motion.button>
-            )}
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              tabIndex={searchQuery ? 0 : -1}
+              aria-label="Clear search"
+              className={`absolute right-10 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#dde3ed] p-1 transition-opacity cursor-pointer ${searchQuery ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+                }`}
+            >
+              <X className="w-4 h-4" />
+            </button>
             <kbd className="absolute right-3 top-1/2 -translate-y-1/2 hidden sm:inline-block px-1.5 py-0.5 bg-[#242a32] text-[#94a3b8] font-mono text-[10px] rounded border border-[#2a3340]">
               ⌘K
             </kbd>
@@ -168,8 +126,8 @@ export function LobbyView() {
                   whileTap={{ scale: 0.96 }}
                   onClick={() => setActiveFilter(isSelected ? null : (f.id as any))}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border cursor-pointer select-none ${isSelected
-                      ? "bg-[#22c55e]/15 border-[#22c55e] text-[#22c55e]"
-                      : "bg-[#1a2027] border-[#2a3340] text-[#94a3b8] hover:text-[#dde3ed]"
+                    ? "bg-[#22c55e]/15 border-[#22c55e] text-[#22c55e]"
+                    : "bg-[#1a2027] border-[#2a3340] text-[#94a3b8] hover:text-[#dde3ed]"
                     }`}
                 >
                   {f.icon}
@@ -192,8 +150,8 @@ export function LobbyView() {
                 whileTap={{ scale: 0.96 }}
                 onClick={() => setSelectedLanguage(lang)}
                 className={`relative px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-colors cursor-pointer select-none ${isSelected
-                    ? "text-[#003915]"
-                    : "bg-[#1a2027] text-[#94a3b8] hover:text-[#dde3ed] hover:bg-[#242a32] border border-[#2a3340]"
+                  ? "text-[#003915]"
+                  : "bg-[#1a2027] text-[#94a3b8] hover:text-[#dde3ed] hover:bg-[#242a32] border border-[#2a3340]"
                   }`}
               >
                 {isSelected && (
@@ -232,11 +190,9 @@ export function LobbyView() {
             <span className="material-symbols-outlined text-3xl">mic_off</span>
           </div>
           <div className="max-w-md">
-            <h3 className="text-fluid-section font-bold text-[#dde3ed]">No active rooms match your filters</h3>
+            <h3 className="text-fluid-section font-bold text-[#dde3ed]">No voice rooms match your search</h3>
             <p className="text-sm text-[#94a3b8] mt-1">
-              Be the first to open a room for{" "}
-              {selectedLanguage !== Language.ALL ? selectedLanguage : "this topic"}! Learners are
-              waiting to speak.
+              Try adjusting your search query, clearing filters, or create a new room to start the conversation.
             </p>
           </div>
           <MotionButton
@@ -244,12 +200,12 @@ export function LobbyView() {
             size="md"
             onClick={() => openCreateModal()}
           >
-            Create this Room Now
+            Create New Room
           </MotionButton>
         </motion.div>
       ) : (
-        <StaggerContainer className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 w-full">
-          <AnimatePresence mode="popLayout">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 w-full auto-rows-fr">
+          <AnimatePresence>
             {rooms.map((room) => {
               const participantCount = Math.max(
                 room.currentSlots || 0,
@@ -258,12 +214,13 @@ export function LobbyView() {
               const isFull = participantCount >= room.maxSlots;
 
               return (
-                <StaggerItem
+                <motion.div
                   key={room.id}
-                  layout
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
+                  layout="position"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0, transition: { duration: 0.15 } }}
+                  className="flex flex-col justify-between h-full min-h-[280px]"
                 >
                   <MotionCard
                     enableHoverEffect={true}
@@ -326,8 +283,8 @@ export function LobbyView() {
 
                             <div
                               className={`w-10 h-10 rounded-full p-0.5 border-2 transition-all ${participant.isSpeaking
-                                  ? "border-[#22c55e] shadow-[0_0_12px_rgba(34,197,94,0.5)]"
-                                  : "border-[#161c23]"
+                                ? "border-[#22c55e] shadow-[0_0_12px_rgba(34,197,94,0.5)]"
+                                : "border-[#161c23]"
                                 }`}
                             >
                               <img
@@ -393,11 +350,11 @@ export function LobbyView() {
                       </MotionButton>
                     </div>
                   </MotionCard>
-                </StaggerItem>
+                </motion.div>
               );
             })}
           </AnimatePresence>
-        </StaggerContainer>
+        </div>
       )}
     </div>
   );

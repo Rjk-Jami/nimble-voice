@@ -3,7 +3,7 @@
 import React from "react";
 import { motion, type HTMLMotionProps } from "framer-motion";
 
-export type ButtonVariant = "primary" | "secondary" | "danger" | "ghost" | "outline";
+export type ButtonVariant = "primary" | "secondary" | "danger" | "destructive" | "ghost" | "outline";
 
 interface MotionButtonProps extends HTMLMotionProps<"button"> {
   variant?: ButtonVariant;
@@ -17,6 +17,8 @@ const variantStyles: Record<ButtonVariant, string> = {
   secondary:
     "bg-[#242a32] hover:bg-[#2f353d] text-[#dde3ed] font-medium border border-[#2a3340]",
   danger:
+    "bg-[#ef4444] text-white font-bold hover:bg-red-600 shadow-[0_0_14px_rgba(239,68,68,0.25)] border border-[#ef4444]/40",
+  destructive:
     "bg-[#ef4444] text-white font-bold hover:bg-red-600 shadow-[0_0_14px_rgba(239,68,68,0.25)] border border-[#ef4444]/40",
   ghost:
     "bg-transparent text-[#94a3b8] hover:text-[#dde3ed] hover:bg-[#242a32]/60",

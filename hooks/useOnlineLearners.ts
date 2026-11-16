@@ -1,24 +1,32 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
-import { presenceClient } from "@/lib/presence/client";
+import { useEffect, useState } from "react";
+import { useLobbyStore } from "@/stores";
+import { socketService } from "@/lib/socket";
 
 export function useOnlineLearners() {
-  const state = useSyncExternalStore(
-    presenceClient.subscribe,
-    presenceClient.getSnapshot,
-    presenceClient.getServerSnapshot
-  );
+  const onlineCount = useLobbyStore((s) => s.onlineCount);
+  const [connected, setConnected] = useState<boolean>(() => socketService.isConnected());
 
   useEffect(() => {
-    const token =
-      localStorage.getItem("token") || localStorage.getItem("nimble_auth_token");
-    if (token) presenceClient.start();
+    const socket = socketService.getSocket();
+    const handleConnect = () => setConnected(true);
+    const handleDisconnect = () => setConnected(false);
+
+    setConnected(socket.connected);
+
+    socket.on("connect", handleConnect);
+    socket.on("disconnect", handleDisconnect);
+
+    return () => {
+      socket.off("connect", handleConnect);
+      socket.off("disconnect", handleDisconnect);
+    };
   }, []);
 
   return {
-    count: state.count,
-    connected: state.connected,
-    reconnecting: state.reconnecting,
+    count: onlineCount,
+    connected,
+    reconnecting: !connected && onlineCount !== null,
   };
 }
